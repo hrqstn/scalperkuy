@@ -1,0 +1,47 @@
+exchange: Tokocrypto
+server_os: Ubuntu
+runtime: Docker Compose
+database: PostgreSQL
+dashboard: Streamlit
+alerts: Discord webhook
+llm: Gemini API for summaries only
+mode: paper
+starting_balance_idr: 1000000
+timezone: Asia/Jakarta
+
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+
+risk:
+  daily_profit_target_percent: 1.0
+  daily_max_loss_percent: 1.0
+  risk_per_trade_percent: 0.1
+  max_position_size_percent: 25
+  max_trades_per_day: 10
+  max_consecutive_losses: 3
+  pause_after_consecutive_losses_minutes: 60
+  max_spread_bps: 8
+
+compounding:
+  enabled: true
+  update_frequency: weekly
+  max_weekly_size_increase_percent: 10
+  reduce_size_immediately_on_drawdown: true
+
+data:
+  candle_timeframe: 1m
+  candle_poll_seconds: 30
+  quote_interval_seconds: 5
+  order_book_depth: 20
+  order_book_interval_seconds: 10
+  trades_interval_seconds: 30
+  dashboard_refresh_seconds: 10
+  stale_data_seconds: 120
+
+tokocrypto:
+  base_url: https://www.tokocrypto.site
+  request_timeout_seconds: 10
+
+alerts_config:
+  cooldown_seconds: 900
