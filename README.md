@@ -25,6 +25,12 @@ Yang sudah disiapkan:
   - recent trades,
   - order book top 20.
 - Discord alert opsional untuk startup, error, dan stale data.
+- Discord alert operasional:
+  - collector startup,
+  - collector task error,
+  - per-feed stale data,
+  - database/health write failure,
+  - disk usage warning.
 - Streamlit dashboard untuk system health, row counts, latest quotes, latest candles, dan candle chart.
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` dan `reporter` masih standby di milestone 1, hanya menulis service health.
@@ -43,6 +49,12 @@ http://localhost:8501
 ```
 
 Kalau tidak mau alert Discord, biarkan `DISCORD_WEBHOOK_URL` kosong. Collector tetap jalan tanpa webhook.
+
+Test Discord webhook:
+
+```bash
+docker compose run --rm collector python -m app.reporting.discord_test
+```
 
 ## Configuration
 
@@ -68,6 +80,15 @@ Untuk override database/port/Discord, edit `.env`:
 POSTGRES_PASSWORD=change_me
 DASHBOARD_PORT=8501
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+Alert disk default menyala saat penggunaan disk container melewati 85%. Ubah di `config.example.yaml`:
+
+```yaml
+alerts_config:
+  cooldown_seconds: 900
+  disk_usage_warning_percent: 85
+  disk_check_interval_seconds: 300
 ```
 
 ## Ubuntu homeserver notes

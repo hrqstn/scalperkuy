@@ -44,6 +44,8 @@ class TokocryptoConfig(BaseModel):
 
 class AlertsConfig(BaseModel):
     cooldown_seconds: int = 900
+    disk_usage_warning_percent: float = 85.0
+    disk_check_interval_seconds: int = 300
 
 
 class AppConfig(BaseModel):
