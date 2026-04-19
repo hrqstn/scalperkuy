@@ -31,6 +31,7 @@ Yang sudah disiapkan:
   - per-feed stale data,
   - database/health write failure,
   - disk usage warning.
+- Tokocrypto request retry/backoff untuk error sementara seperti DNS failure atau HTTP 504.
 - Streamlit dashboard untuk system health, market data freshness, row counts, latest quotes, latest candles, dan candle chart.
 - Aggregator 1 menit untuk mengubah raw quotes/trades/order book menjadi `market_features_1m`.
 - Paper-trading risk/strategy skeleton tanpa live execution.

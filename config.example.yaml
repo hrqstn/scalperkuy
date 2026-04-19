@@ -48,6 +48,8 @@ aggregation:
 tokocrypto:
   base_url: https://www.tokocrypto.site
   request_timeout_seconds: 10
+  max_retries: 3
+  retry_backoff_seconds: 1.5
 
 alerts_config:
   cooldown_seconds: 900

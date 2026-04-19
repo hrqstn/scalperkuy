@@ -69,6 +69,7 @@ Current intervals:
 - Docker Compose scaffold.
 - PostgreSQL schema.
 - Tokocrypto public REST adapter layer.
+- Tokocrypto request retry/backoff for temporary DNS/API failures such as 504 gateway timeout.
 - Collector storing candles, quotes, recent trades, and order book snapshots.
 - Aggregator materializing 1m market features into `market_features_1m`.
 - Service health writes with throttled `ok` heartbeat.

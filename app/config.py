@@ -47,6 +47,8 @@ class AggregationConfig(BaseModel):
 class TokocryptoConfig(BaseModel):
     base_url: str = "https://www.tokocrypto.site"
     request_timeout_seconds: int = 10
+    max_retries: int = 3
+    retry_backoff_seconds: float = 1.5
 
 
 class AlertsConfig(BaseModel):

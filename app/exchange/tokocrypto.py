@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -30,18 +31,14 @@ class TokocryptoAdapter:
         )
 
     def fetch_recent_candles(self, symbol: str, timeframe: str, limit: int = 5) -> list[Candle]:
-        response = self.client.get(
+        rows = self._get_json(
             "/api/v3/klines",
             params={"symbol": exchange_symbol(symbol), "interval": timeframe, "limit": limit},
         )
-        response.raise_for_status()
-        rows = response.json()
         return [self._parse_candle(symbol, timeframe, row) for row in rows]
 
     def fetch_quote(self, symbol: str) -> Quote:
-        response = self.client.get("/api/v3/ticker/bookTicker", params={"symbol": exchange_symbol(symbol)})
-        response.raise_for_status()
-        data = response.json()
+        data = self._get_json("/api/v3/ticker/bookTicker", params={"symbol": exchange_symbol(symbol)})
         bid = Decimal(str(data["bidPrice"]))
         ask = Decimal(str(data["askPrice"]))
         spread = ask - bid
@@ -57,14 +54,11 @@ class TokocryptoAdapter:
         )
 
     def fetch_recent_trades(self, symbol: str, limit: int = 50) -> list[RecentTrade]:
-        response = self.client.get("/api/v3/trades", params={"symbol": exchange_symbol(symbol), "limit": limit})
-        response.raise_for_status()
-        return [self._parse_trade(symbol, item) for item in response.json()]
+        rows = self._get_json("/api/v3/trades", params={"symbol": exchange_symbol(symbol), "limit": limit})
+        return [self._parse_trade(symbol, item) for item in rows]
 
     def fetch_order_book(self, symbol: str, depth: int = 20) -> OrderBookSnapshot:
-        response = self.client.get("/api/v3/depth", params={"symbol": exchange_symbol(symbol), "limit": depth})
-        response.raise_for_status()
-        data = response.json()
+        data = self._get_json("/api/v3/depth", params={"symbol": exchange_symbol(symbol), "limit": depth})
         bids = data.get("bids", [])[:depth]
         asks = data.get("asks", [])[:depth]
         if not bids or not asks:
@@ -90,6 +84,32 @@ class TokocryptoAdapter:
 
     def close(self) -> None:
         self.client.close()
+
+    def _get_json(self, path: str, params: dict[str, Any]) -> Any:
+        last_error: Exception | None = None
+        for attempt in range(1, self.config.tokocrypto.max_retries + 1):
+            try:
+                response = self.client.get(path, params=params)
+                if response.status_code in {408, 429} or response.status_code >= 500:
+                    response.raise_for_status()
+                elif response.status_code >= 400:
+                    response.raise_for_status()
+                return response.json()
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPStatusError) as exc:
+                last_error = exc
+                if not self._should_retry(exc) or attempt >= self.config.tokocrypto.max_retries:
+                    break
+                time.sleep(self.config.tokocrypto.retry_backoff_seconds * attempt)
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"Tokocrypto request failed for {path}")
+
+    @staticmethod
+    def _should_retry(exc: Exception) -> bool:
+        if isinstance(exc, httpx.HTTPStatusError):
+            status_code = exc.response.status_code
+            return status_code in {408, 429} or status_code >= 500
+        return True
 
     @staticmethod
     def _parse_candle(symbol: str, timeframe: str, row: list[Any]) -> Candle:

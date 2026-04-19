@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Callable
 
+import httpx
+
 from app.collector.repository import MarketDataRepository
 from app.config import AppConfig, load_config
 from app.db.models import init_db
@@ -83,8 +85,9 @@ class CollectorService:
                     task.mark_done(now)
                 except Exception as exc:
                     logger.exception("task failed: %s", task.name)
-                    self._safe_write_health("error", f"{task.name} failed: {exc}")
-                    self._send_alert("collector-error", f"Scalperkuy collector task `{task.name}` failed: {exc}")
+                    message = f"{task.name} failed: {self._format_exception(exc)}"
+                    self._safe_write_health("error", message)
+                    self._send_alert(f"collector-error-{task.name}", f"Scalperkuy collector task `{message}`")
                     task.mark_done(now + min(task.interval_seconds, 30))
             time.sleep(1)
 
@@ -187,6 +190,18 @@ class CollectorService:
             self.alerts.send(key, message, force=force)
         except Exception as exc:
             logger.warning("discord alert failed: %s", exc)
+
+    @staticmethod
+    def _format_exception(exc: Exception) -> str:
+        if isinstance(exc, httpx.HTTPStatusError):
+            status_code = exc.response.status_code
+            reason = exc.response.reason_phrase
+            path = exc.request.url.path
+            query = exc.request.url.query.decode("utf-8") if isinstance(exc.request.url.query, bytes) else exc.request.url.query
+            return f"HTTP {status_code} {reason} from Tokocrypto {path}?{query}"
+        if isinstance(exc, httpx.RequestError):
+            return f"{exc.__class__.__name__}: {exc}"
+        return str(exc)
 
     def _install_signal_handlers(self) -> None:
         def stop(signum: int, _frame: object) -> None:

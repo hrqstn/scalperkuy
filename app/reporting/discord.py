@@ -21,7 +21,15 @@ class DiscordAlertClient:
         if not force and last_sent and now - last_sent < timedelta(seconds=self.cooldown_seconds):
             return False
 
-        response = httpx.post(self.webhook_url, json={"content": message}, timeout=10)
+        response = httpx.post(
+            self.webhook_url,
+            json={
+                "content": message,
+                "allowed_mentions": {"parse": []},
+                "flags": 4,
+            },
+            timeout=10,
+        )
         response.raise_for_status()
         self._last_sent[key] = now
         return True
