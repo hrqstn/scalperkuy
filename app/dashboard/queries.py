@@ -75,7 +75,7 @@ def market_data_freshness(engine: Engine, stale_threshold_seconds: int, symbols:
     query = text(
         """
         WITH latest AS (
-            SELECT 'candles' AS feed, symbol, max(close_time) AS latest_at FROM market_candles GROUP BY symbol
+            SELECT 'candles' AS feed, symbol, max(open_time) AS latest_at FROM market_candles GROUP BY symbol
             UNION ALL
             SELECT 'quotes' AS feed, symbol, max(timestamp) AS latest_at FROM market_quotes GROUP BY symbol
             UNION ALL
@@ -87,7 +87,7 @@ def market_data_freshness(engine: Engine, stale_threshold_seconds: int, symbols:
             feed,
             symbol,
             latest_at,
-            round(extract(epoch FROM (now() - latest_at)))::integer AS age_seconds,
+            greatest(0, round(extract(epoch FROM (now() - latest_at)))::integer) AS age_seconds,
             CASE
                 WHEN latest_at IS NULL THEN 'missing'
                 WHEN extract(epoch FROM (now() - latest_at)) > :stale_threshold_seconds THEN 'stale'
