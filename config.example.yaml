@@ -40,6 +40,11 @@ data:
   stale_data_seconds: 120
   service_health_ok_interval_seconds: 60
 
+aggregation:
+  enabled: true
+  interval_seconds: 60
+  lookback_minutes: 180
+
 tokocrypto:
   base_url: https://www.tokocrypto.site
   request_timeout_seconds: 10

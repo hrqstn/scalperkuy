@@ -16,7 +16,7 @@ AI-assisted crypto scalping research bot untuk Ubuntu homeserver. Fase `v0.1` ha
 
 Yang sudah disiapkan:
 
-- Docker Compose dengan `postgres`, `collector`, `paper_trader`, `reporter`, dan `dashboard`.
+- Docker Compose dengan `postgres`, `collector`, `aggregator`, `paper_trader`, `reporter`, dan `dashboard`.
 - Schema PostgreSQL untuk market data, paper trading, event, dan service health.
 - Adapter Tokocrypto public REST di `app/exchange/tokocrypto.py`.
 - Collector untuk BTC/USDT dan ETH/USDT:
@@ -32,6 +32,7 @@ Yang sudah disiapkan:
   - database/health write failure,
   - disk usage warning.
 - Streamlit dashboard untuk system health, market data freshness, row counts, latest quotes, latest candles, dan candle chart.
+- Aggregator 1 menit untuk mengubah raw quotes/trades/order book menjadi `market_features_1m`.
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` dan `reporter` masih standby di milestone 1, hanya menulis service health.
 
@@ -77,6 +78,10 @@ risk:
   daily_profit_target_percent: 1.0
   daily_max_loss_percent: 0.5
   risk_per_trade_percent: 0.1
+aggregation:
+  enabled: true
+  interval_seconds: 60
+  lookback_minutes: 180
 ```
 
 Context handoff untuk chat/session berikutnya ada di `docs/PROJECT_CONTEXT.md`.
@@ -125,6 +130,7 @@ Tabel utama:
 - `market_quotes`
 - `market_trades`
 - `order_book_snapshots`
+- `market_features_1m`
 - `paper_signals`
 - `paper_trades`
 - `daily_performance`

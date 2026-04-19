@@ -56,6 +56,26 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  aggregator:
+    build: .
+    container_name: scalperkuy-aggregator
+    command: python -m app.aggregation.service
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-scalperkuy}:${POSTGRES_PASSWORD:-scalperkuy_dev_password}@postgres:5432/${POSTGRES_DB:-scalperkuy}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - ./config.example.yaml:/app/config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   reporter:
     build: .
     container_name: scalperkuy-reporter

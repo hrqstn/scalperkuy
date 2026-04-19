@@ -29,6 +29,7 @@ Services:
 
 - `postgres`: database
 - `collector`: active market data collector
+- `aggregator`: active 1m market feature aggregator
 - `dashboard`: active Streamlit dashboard
 - `paper_trader`: standby, no entries yet
 - `reporter`: standby, no summaries yet
@@ -69,6 +70,7 @@ Current intervals:
 - PostgreSQL schema.
 - Tokocrypto public REST adapter layer.
 - Collector storing candles, quotes, recent trades, and order book snapshots.
+- Aggregator materializing 1m market features into `market_features_1m`.
 - Service health writes with throttled `ok` heartbeat.
 - Discord alerts:
   - collector startup
@@ -90,6 +92,27 @@ docker compose run --rm collector python -m app.reporting.discord_test
   - latest quotes
   - latest candles
   - candle chart
+
+Aggregator currently materializes these 1m features:
+
+- candle OHLCV
+- quote count
+- trade count
+- order book snapshot count
+- average mid price
+- average/min/max spread
+- average spread bps
+- buy/sell trade counts
+- buy/sell volume
+- total trade volume
+- trade notional
+- trade flow imbalance
+- average/min/max order book imbalance
+- average top-20 bid depth
+- average top-20 ask depth
+- 1m volatility bps
+
+This aggregate table is long-term memory for research. It must exist before raw quotes/trades/order book snapshots are purged.
 
 ## Risk Policy Update
 
@@ -229,6 +252,30 @@ Retention direction after aggregation exists:
 - service health: 14-30 days
 
 Important: raw data can be deleted after 30-90 days only if derived aggregates/features/labels have already been materialized.
+
+Paper trader honesty rules:
+
+- When unsure whether an order would fill in real market conditions, assume it did not fill.
+- For long entries, use ask price plus slippage, not mid/last.
+- For long exits, use bid price minus slippage, not mid/last.
+- If TP and SL are both touched in the same candle and trade-level ordering cannot prove TP came first, assume SL first.
+- If spread is too wide, skip.
+- If order book liquidity is insufficient, skip or simulate partial fill.
+- If market data is stale, skip.
+- Always calculate gross PnL and net PnL separately.
+- Net PnL must include fees, spread cost, and slippage estimate.
+- It is better to underestimate paper profit than to discover fake edge in live trading.
+
+Bot evolution loop:
+
+1. Collect raw market data.
+2. Aggregate raw data into 1m/5m features.
+3. Create transparent strategy hypotheses.
+4. Simulate with conservative fills and costs.
+5. Label outcomes such as TP-before-SL.
+6. Evaluate win rate, profit factor, drawdown, fee drag, market regime, and weekly stability.
+7. Improve or discard strategies based on evidence.
+8. Repeat. ML can later become a filter, not a replacement for deterministic risk management.
 
 ## How To Explain The Project
 

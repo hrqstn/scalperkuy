@@ -62,6 +62,7 @@ def table_counts(engine: Engine) -> pd.DataFrame:
         UNION ALL SELECT 'market_quotes', count(*) FROM market_quotes
         UNION ALL SELECT 'market_trades', count(*) FROM market_trades
         UNION ALL SELECT 'order_book_snapshots', count(*) FROM order_book_snapshots
+        UNION ALL SELECT 'market_features_1m', count(*) FROM market_features_1m
         UNION ALL SELECT 'paper_signals', count(*) FROM paper_signals
         UNION ALL SELECT 'paper_trades', count(*) FROM paper_trades
         UNION ALL SELECT 'service_health', count(*) FROM service_health
