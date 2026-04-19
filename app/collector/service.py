@@ -48,6 +48,8 @@ class CollectorService:
         self.running = True
         self.last_success_at: datetime | None = None
         self.last_success_by_task: dict[str, datetime] = {}
+        self.last_health_write_at: datetime | None = None
+        self.last_health_status: str | None = None
 
     def run(self) -> None:
         self._install_signal_handlers()
@@ -145,8 +147,19 @@ class CollectorService:
         logger.info(message)
 
     def _safe_write_health(self, status: str, message: str) -> None:
+        now = datetime.now(UTC)
+        if (
+            status == "ok"
+            and self.last_health_status == "ok"
+            and self.last_health_write_at
+            and (now - self.last_health_write_at).total_seconds()
+            < self.config.data.service_health_ok_interval_seconds
+        ):
+            return
         try:
             self._write_health(status, message)
+            self.last_health_write_at = now
+            self.last_health_status = status
         except Exception as exc:
             logger.warning("service health write failed: %s", exc)
             self._send_alert("database-unavailable", f"Scalperkuy database/health write failed: {exc}")

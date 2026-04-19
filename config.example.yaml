@@ -38,6 +38,7 @@ data:
   trades_interval_seconds: 30
   dashboard_refresh_seconds: 10
   stale_data_seconds: 120
+  service_health_ok_interval_seconds: 60
 
 tokocrypto:
   base_url: https://www.tokocrypto.site

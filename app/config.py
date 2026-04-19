@@ -35,6 +35,7 @@ class DataConfig(BaseModel):
     trades_interval_seconds: int = 30
     dashboard_refresh_seconds: int = 10
     stale_data_seconds: int = 120
+    service_health_ok_interval_seconds: int = 60
 
 
 class TokocryptoConfig(BaseModel):

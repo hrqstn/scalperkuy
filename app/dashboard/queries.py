@@ -71,6 +71,42 @@ def table_counts(engine: Engine) -> pd.DataFrame:
     return pd.read_sql_query(query, engine)
 
 
+def market_data_freshness(engine: Engine, stale_threshold_seconds: int, symbols: list[str]) -> pd.DataFrame:
+    query = text(
+        """
+        WITH latest AS (
+            SELECT 'candles' AS feed, symbol, max(close_time) AS latest_at FROM market_candles GROUP BY symbol
+            UNION ALL
+            SELECT 'quotes' AS feed, symbol, max(timestamp) AS latest_at FROM market_quotes GROUP BY symbol
+            UNION ALL
+            SELECT 'trades' AS feed, symbol, max(timestamp) AS latest_at FROM market_trades GROUP BY symbol
+            UNION ALL
+            SELECT 'order_books' AS feed, symbol, max(timestamp) AS latest_at FROM order_book_snapshots GROUP BY symbol
+        )
+        SELECT
+            feed,
+            symbol,
+            latest_at,
+            round(extract(epoch FROM (now() - latest_at)))::integer AS age_seconds,
+            CASE
+                WHEN latest_at IS NULL THEN 'missing'
+                WHEN extract(epoch FROM (now() - latest_at)) > :stale_threshold_seconds THEN 'stale'
+                ELSE 'fresh'
+            END AS status
+        FROM latest
+        ORDER BY feed, symbol
+        """
+    )
+    frame = pd.read_sql_query(query, engine, params={"stale_threshold_seconds": stale_threshold_seconds})
+    expected = pd.MultiIndex.from_product(
+        [["candles", "quotes", "trades", "order_books"], symbols],
+        names=["feed", "symbol"],
+    ).to_frame(index=False)
+    merged = expected.merge(frame, how="left", on=["feed", "symbol"])
+    merged["status"] = merged["status"].fillna("missing")
+    return merged.sort_values(["feed", "symbol"])
+
+
 def recent_trades(engine: Engine, limit: int = 25) -> pd.DataFrame:
     query = text(
         """

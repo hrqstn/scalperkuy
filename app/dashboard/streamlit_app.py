@@ -36,6 +36,7 @@ if page == "System":
     st.subheader("System")
     health = queries.latest_service_health(engine)
     counts = queries.table_counts(engine)
+    freshness = queries.market_data_freshness(engine, config.data.stale_data_seconds, config.symbols)
     recent = queries.recent_health_events(engine)
     disk = shutil.disk_usage("/")
 
@@ -49,6 +50,9 @@ if page == "System":
 
     st.write("Database row counts")
     st.dataframe(counts, use_container_width=True, hide_index=True)
+
+    st.write("Market data freshness")
+    st.dataframe(freshness, use_container_width=True, hide_index=True)
 
     st.write("Recent service events")
     st.dataframe(recent, use_container_width=True, hide_index=True)

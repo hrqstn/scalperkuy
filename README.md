@@ -31,7 +31,7 @@ Yang sudah disiapkan:
   - per-feed stale data,
   - database/health write failure,
   - disk usage warning.
-- Streamlit dashboard untuk system health, row counts, latest quotes, latest candles, dan candle chart.
+- Streamlit dashboard untuk system health, market data freshness, row counts, latest quotes, latest candles, dan candle chart.
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` dan `reporter` masih standby di milestone 1, hanya menulis service health.
 
@@ -72,6 +72,7 @@ data:
   quote_interval_seconds: 5
   order_book_depth: 20
   order_book_interval_seconds: 10
+  service_health_ok_interval_seconds: 60
 ```
 
 Untuk override database/port/Discord, edit `.env`:
