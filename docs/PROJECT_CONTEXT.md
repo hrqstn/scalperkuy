@@ -122,18 +122,84 @@ Reasoning:
 - `0.5%` daily max loss makes survival more important than forcing trades.
 - If using `0.2%` risk per trade later, 3 consecutive losses can already exceed `0.5%`, so `0.1%` is better for the first paper baseline.
 
-Candidate paper baseline:
+Strategy direction update:
+
+- Do not use one large trade to chase the full daily target.
+- The daily `1.0%` target is a stop target, not a forced target.
+- The first active paper trader should focus on small, repeatable scalps.
+- EMA-only logic can remain as a simple comparison baseline, but the main hypothesis should use the market microstructure data being collected.
+
+Primary paper-trading hypothesis:
+
+> Micro momentum burst scalping.
+
+This does not try to predict the broad direction 5 minutes into the future. It tries to capture a small, fast movement when short-term order book, trade flow, spread, and price action align.
+
+Long candidate features:
+
+- Spread is tight enough for the target to survive fees and slippage.
+- Order book bid-side imbalance is positive, for example bid dominance above roughly `60%`.
+- Imbalance should be persistent across recent snapshots, not just one snapshot.
+- Aggressive buy flow is increasing in recent trades.
+- Buy volume exceeds sell volume in a short recent window.
+- Price breaks micro resistance or reclaims a short-term level.
+- Short-term volatility is large enough to cover round-trip fee, spread, and slippage.
+- Optional higher-level filter: EMA 9 above EMA 21 or similar light trend filter.
+
+Exit policy is more important than entry:
+
+- TP should be small but fee-aware.
+- SL should be tight.
+- Use a max holding time so stale scalps do not become accidental swing trades.
+- Add dynamic exit when momentum fades.
+- Dynamic exit examples:
+  - spread widens sharply
+  - order book imbalance flips against the position
+  - aggressive buy flow fades
+  - price fails to continue after entry
+  - max holding time is reached
+
+Initial TP/SL direction:
+
+- If round-trip fee is around `0.2%`, a `0.2%` gross target is close to break-even before spread/slippage.
+- Paper trading must calculate gross and net PnL separately.
+- TP gross should likely start around `0.35% - 0.50%` if fees are high.
+- SL gross should likely start around `0.15% - 0.25%`.
+- If actual fees are lower, TP/SL can be revisited.
+- Risk per trade should still start at `0.1%` of equity.
+- Daily max loss should remain `0.5%`.
+- Max trades/day should start at `10` or lower if overtrading appears.
+
+Known scalping risks:
+
+- Fees can erase small gross targets.
+- Spread and slippage can turn a good-looking trade into a bad net trade.
+- Order book imbalance can be spoofed.
+- Order book features must not be used alone; require actual trade flow and price confirmation.
+- Overtrading can destroy edge even if individual signals look reasonable.
+- Market regime can change quickly.
+
+Anti-overtrading guardrails:
+
+- one open position per symbol max
+- max trades/day
+- max consecutive losses
+- cooldown after any trade
+- longer cooldown after a loss
+- block entry if spread is too wide
+- block entry if volatility is too low to cover costs
+- block entry if TP/SL is missing
+
+Simple EMA comparison baseline:
 
 - long-only
-- one open position per symbol max
 - EMA 9 above EMA 21
 - recent volume above rolling average
 - spread below threshold
 - price pulls back near EMA 9
-- TP/SL fixed or volatility based
-- target per trade roughly `0.15% - 0.25%`
-- stop per trade roughly `0.10% - 0.15%`
-- minimum reward:risk roughly `1.3 - 1.8`
+- fixed or volatility-based TP/SL
+
+The EMA baseline is useful as a benchmark, but it should not be treated as the main reason this project collects order book and trade-flow data.
 
 All signals, decisions, features, entries, exits, fees, spread, slippage estimates, and skip reasons must be stored.
 
@@ -207,8 +273,8 @@ order by pg_total_relation_size(relid) desc;
 
 Then implement paper trader baseline:
 
-1. Read latest candles and quotes.
-2. Generate rule-based signal.
+1. Read latest candles, quotes, recent trades, and order book snapshots.
+2. Generate rule-based micro momentum burst signal.
 3. Enforce deterministic risk manager.
 4. Simulate entries/exits.
 5. Estimate fees, spread, and slippage.
