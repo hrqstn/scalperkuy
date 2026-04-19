@@ -1,0 +1,223 @@
+# Scalperkuy Project Context
+
+This document is the handoff context for future chat sessions. Keep it updated when the project direction changes.
+
+## Goal
+
+Build an AI-assisted crypto scalping research bot for a 24/7 Ubuntu homeserver. Version `v0.1` is strictly for public market data collection and paper-trading research. No live trading is allowed.
+
+Core philosophy:
+
+> Collect truth first, simulate honestly second, use AI for summaries only, and keep live trading locked until the evidence is boringly convincing.
+
+## Current Runtime
+
+- Repository: `hrqstn/scalperkuy`
+- Runtime: Docker Compose
+- Server target: Ubuntu homeserver
+- Database: PostgreSQL
+- Dashboard: Streamlit
+- Alerting: Discord webhook
+- Exchange data source: Tokocrypto public REST API
+- Symbols:
+  - `BTC/USDT`
+  - `ETH/USDT`
+- Timezone: `Asia/Jakarta`
+- Current mode: `paper`
+
+Services:
+
+- `postgres`: database
+- `collector`: active market data collector
+- `dashboard`: active Streamlit dashboard
+- `paper_trader`: standby, no entries yet
+- `reporter`: standby, no summaries yet
+
+## Hard Rules
+
+- No live trading in `v0.1`.
+- No exchange API key with trading permission.
+- No leverage.
+- No top-up for at least 3 months.
+- Collector must keep running even if paper trader hits emergency stop.
+- Emergency stop only pauses new paper/live entries, never stops market data collection.
+- LLM/Gemini is only for summaries and anomaly explanations.
+- LLM/Gemini must not make buy/sell decisions, risk calculations, PnL calculations, or database truth.
+
+## Data Being Collected
+
+For `BTC/USDT` and `ETH/USDT`:
+
+- 1m OHLCV candles
+- best bid / best ask quotes
+- spread and spread bps
+- recent trades
+- order book top 20 snapshots
+
+Current intervals:
+
+- candles: 1m timeframe, polled every 30 seconds
+- quotes: every 5 seconds
+- order book top 20: every 10 seconds
+- recent trades: every 30 seconds
+- dashboard refresh target: 10 seconds
+- stale threshold: 120 seconds
+
+## Implemented So Far
+
+- Docker Compose scaffold.
+- PostgreSQL schema.
+- Tokocrypto public REST adapter layer.
+- Collector storing candles, quotes, recent trades, and order book snapshots.
+- Service health writes with throttled `ok` heartbeat.
+- Discord alerts:
+  - collector startup
+  - collector task error
+  - per-feed stale data
+  - database/health write failure
+  - disk usage warning
+- Discord webhook test command:
+
+```bash
+docker compose run --rm collector python -m app.reporting.discord_test
+```
+
+- Streamlit dashboard:
+  - service status
+  - disk usage
+  - database row counts
+  - market data freshness per feed/symbol
+  - latest quotes
+  - latest candles
+  - candle chart
+
+## Risk Policy Update
+
+Initial discussion had:
+
+- daily profit target: `1.0%`
+- daily max loss: `1.0%`
+- risk per trade: `0.1%`
+
+After discussion, daily max loss should be more conservative before paper trader activation:
+
+```yaml
+risk:
+  daily_profit_target_percent: 1.0
+  daily_max_loss_percent: 0.5
+  risk_per_trade_percent: 0.1
+  max_position_size_percent: 25
+  max_trades_per_day: 10
+  max_consecutive_losses: 3
+  pause_after_consecutive_losses_minutes: 60
+  max_spread_bps: 8
+```
+
+Reasoning:
+
+- The 1% daily target is a stop target, not a forced daily expectation.
+- Do not try to hit 1% in one all-in trade.
+- Healthy paper-trading structure should use multiple small trades.
+- Early baseline should use `0.1%` risk per trade.
+- `0.5%` daily max loss makes survival more important than forcing trades.
+- If using `0.2%` risk per trade later, 3 consecutive losses can already exceed `0.5%`, so `0.1%` is better for the first paper baseline.
+
+Candidate paper baseline:
+
+- long-only
+- one open position per symbol max
+- EMA 9 above EMA 21
+- recent volume above rolling average
+- spread below threshold
+- price pulls back near EMA 9
+- TP/SL fixed or volatility based
+- target per trade roughly `0.15% - 0.25%`
+- stop per trade roughly `0.10% - 0.15%`
+- minimum reward:risk roughly `1.3 - 1.8`
+
+All signals, decisions, features, entries, exits, fees, spread, slippage estimates, and skip reasons must be stored.
+
+## Storage And Retention Direction
+
+Do not purge raw data immediately. First run the collector and measure disk growth.
+
+Rough estimate for current config:
+
+- 100-250 MB/day realistic
+- 3-8 GB/month
+- 9-24 GB/90 days
+- with PostgreSQL/index/WAL overhead, budget 15-35 GB for 90 days
+
+Retention direction after aggregation exists:
+
+- candles: keep long term
+- paper signals/trades: keep long term
+- daily performance: keep long term
+- feature/label datasets: keep long term
+- quote aggregates 1m/5m: keep long term
+- trade aggregates 1m/5m: keep long term
+- order book aggregates 1m/5m: keep long term
+- raw quotes: keep 90 days
+- raw trades: keep 90 days
+- raw order book snapshots: start with 30 days
+- service health: 14-30 days
+
+Important: raw data can be deleted after 30-90 days only if derived aggregates/features/labels have already been materialized.
+
+## How To Explain The Project
+
+This is not a bot that lets AI randomly create buy/sell signals. It is a data lab for crypto scalping research.
+
+The system collects real market data, runs transparent paper-trading hypotheses, measures whether TP is hit before SL after fees/spread/slippage, and only later uses ML as a filter if the dataset proves there is something worth learning.
+
+If asked who determines the strategy:
+
+- Human-controlled research process determines the strategy.
+- Rule-based baselines create trade candidates.
+- Data validates or rejects the hypothesis.
+- ML may later filter candidates, but does not replace deterministic risk management.
+- If the data does not show edge, there is no live trading.
+
+If asked whether the system will have its own strategy after 3 months:
+
+- Yes, the goal is to build a strategy informed by our own collected data.
+- No, it will not be AI freely inventing signals.
+- Strategies must pass paper trading, walk-forward validation, and strict risk checks.
+
+## Next Steps
+
+Before enabling paper trader:
+
+1. Let collector run overnight / 12-24 hours.
+2. Check dashboard `System` page:
+   - collector status is `ok`
+   - freshness is `fresh` for all feeds/symbols
+   - no stale/error events
+3. Check DB table sizes:
+
+```bash
+docker compose exec postgres psql -U potatotan -d scalperkuy -c "
+select
+  relname as table_name,
+  pg_size_pretty(pg_total_relation_size(relid)) as total_size
+from pg_catalog.pg_statio_user_tables
+order by pg_total_relation_size(relid) desc;
+"
+```
+
+Then implement paper trader baseline:
+
+1. Read latest candles and quotes.
+2. Generate rule-based signal.
+3. Enforce deterministic risk manager.
+4. Simulate entries/exits.
+5. Estimate fees, spread, and slippage.
+6. Write `paper_signals` and `paper_trades`.
+7. Daily stop/profit target/consecutive-loss stop blocks new entries only.
+8. Collector must continue regardless of paper trader state.
+
+Reporter should come after paper trader has useful data:
+
+1. Start with deterministic daily summary.
+2. Add Gemini only for narrative summaries later.
+3. Never let Gemini calculate or decide trades.

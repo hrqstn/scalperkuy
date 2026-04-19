@@ -73,7 +73,13 @@ data:
   order_book_depth: 20
   order_book_interval_seconds: 10
   service_health_ok_interval_seconds: 60
+risk:
+  daily_profit_target_percent: 1.0
+  daily_max_loss_percent: 0.5
+  risk_per_trade_percent: 0.1
 ```
+
+Context handoff untuk chat/session berikutnya ada di `docs/PROJECT_CONTEXT.md`.
 
 Untuk override database/port/Discord, edit `.env`:
 
