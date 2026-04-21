@@ -151,4 +151,17 @@ elif page == "Paper Trading":
 
 else:
     st.subheader("Journal")
-    st.info("Daily and weekly Gemini summaries are planned after the collector and paper trading loop are stable.")
+    st.caption("Deterministic research journal. Gemini is not used for these numbers.")
+    latest_journal = queries.latest_journal_entry(engine)
+    recent_journal = queries.recent_journal_entries(engine)
+
+    if latest_journal.empty:
+        st.info("No journal entry yet. Reporter will create one after its next interval.")
+    else:
+        row = latest_journal.iloc[0]
+        st.write(f"Latest: {row['title']}")
+        st.caption(f"Updated at {row['updated_at']}")
+        st.text(row["summary"])
+
+    st.write("Recent journal entries")
+    st.dataframe(recent_journal, use_container_width=True, hide_index=True)

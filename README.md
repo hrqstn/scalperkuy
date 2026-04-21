@@ -36,7 +36,7 @@ Yang sudah disiapkan:
 - Aggregator 1 menit untuk mengubah raw quotes/trades/order book menjadi `market_features_1m`.
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` menjalankan simulasi konservatif jika `paper_trading.enabled: true`.
-- `reporter` masih standby di milestone 1, hanya menulis service health.
+- `reporter` membuat deterministic research journal tanpa Gemini.
 
 ## Quick start
 
@@ -91,6 +91,10 @@ paper_trading:
   slippage_bps: 2
   take_profit_bps: 40
   stop_loss_bps: 20
+reporting:
+  enabled: true
+  interval_seconds: 900
+  discord_daily_summary_enabled: false
 ```
 
 Paper trader bersifat paper-only:
@@ -152,6 +156,7 @@ Tabel utama:
 - `paper_trades`
 - `daily_performance`
 - `market_events`
+- `journal_entries`
 - `service_health`
 
 ## Safety boundary

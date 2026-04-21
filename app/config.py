@@ -65,6 +65,12 @@ class PaperTradingConfig(BaseModel):
     min_volatility_bps: float = 2.0
 
 
+class ReportingConfig(BaseModel):
+    enabled: bool = True
+    interval_seconds: int = 900
+    discord_daily_summary_enabled: bool = False
+
+
 class TokocryptoConfig(BaseModel):
     base_url: str = "https://www.tokocrypto.site"
     request_timeout_seconds: int = 10
@@ -89,6 +95,7 @@ class AppConfig(BaseModel):
     data: DataConfig = Field(default_factory=DataConfig)
     aggregation: AggregationConfig = Field(default_factory=AggregationConfig)
     paper_trading: PaperTradingConfig = Field(default_factory=PaperTradingConfig)
+    reporting: ReportingConfig = Field(default_factory=ReportingConfig)
     tokocrypto: TokocryptoConfig = Field(default_factory=TokocryptoConfig)
     alerts_config: AlertsConfig = Field(default_factory=AlertsConfig)
     database_url: str = "postgresql+psycopg://scalperkuy:scalperkuy_dev_password@postgres:5432/scalperkuy"

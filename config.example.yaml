@@ -65,6 +65,11 @@ paper_trading:
   min_orderbook_imbalance: 0.15
   min_volatility_bps: 2.0
 
+reporting:
+  enabled: true
+  interval_seconds: 900
+  discord_daily_summary_enabled: false
+
 tokocrypto:
   base_url: https://www.tokocrypto.site
   request_timeout_seconds: 10

@@ -32,7 +32,7 @@ Services:
 - `aggregator`: active 1m market feature aggregator
 - `dashboard`: active Streamlit dashboard
 - `paper_trader`: active conservative paper trader when `paper_trading.enabled: true`
-- `reporter`: standby, no summaries yet
+- `reporter`: active deterministic journal reporter; Gemini summaries are still disabled
 
 ## Hard Rules
 
@@ -73,6 +73,7 @@ Current intervals:
 - Collector storing candles, quotes, recent trades, and order book snapshots.
 - Aggregator materializing 1m market features into `market_features_1m`.
 - Conservative paper trader baseline using `micro_momentum_burst_v0`.
+- Deterministic journal entries in `journal_entries`.
 - Service health writes with throttled `ok` heartbeat.
 - Discord alerts:
   - collector startup
@@ -94,6 +95,8 @@ docker compose run --rm collector python -m app.reporting.discord_test
   - latest quotes
   - latest candles
   - candle chart
+  - paper trading metrics
+  - deterministic journal summary
 
 Aggregator currently materializes these 1m features:
 
@@ -291,6 +294,23 @@ Current paper trader v0 baseline:
   - spread too wide
 - Signals are written to `paper_signals`.
 - Trades are written to `paper_trades`.
+
+Current journal v0:
+
+- Reporter writes deterministic daily research summaries to `journal_entries`.
+- Reporter updates the current day every `reporting.interval_seconds`.
+- Gemini is not used in journal v0.
+- Journal includes:
+  - market data freshness
+  - trade count
+  - realized PnL
+  - win rate
+  - profit factor
+  - fee/slippage estimate
+  - signal outcome breakdown
+  - exit reason breakdown
+  - sample-size warning
+- Dashboard `Journal` page displays the latest summary and recent entries.
 
 ## Live Observations
 

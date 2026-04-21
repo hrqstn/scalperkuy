@@ -65,6 +65,7 @@ def table_counts(engine: Engine) -> pd.DataFrame:
         UNION ALL SELECT 'market_features_1m', count(*) FROM market_features_1m
         UNION ALL SELECT 'paper_signals', count(*) FROM paper_signals
         UNION ALL SELECT 'paper_trades', count(*) FROM paper_trades
+        UNION ALL SELECT 'journal_entries', count(*) FROM journal_entries
         UNION ALL SELECT 'service_health', count(*) FROM service_health
         ORDER BY table_name
         """
@@ -238,6 +239,30 @@ def recent_health_events(engine: Engine, limit: int = 25) -> pd.DataFrame:
         SELECT timestamp, service_name, status, message
         FROM service_health
         ORDER BY timestamp DESC
+        LIMIT :limit
+        """
+    )
+    return pd.read_sql_query(query, engine, params={"limit": limit})
+
+
+def latest_journal_entry(engine: Engine) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT entry_date, entry_type, title, summary, metrics_json, updated_at
+        FROM journal_entries
+        ORDER BY entry_date DESC, updated_at DESC
+        LIMIT 1
+        """
+    )
+    return pd.read_sql_query(query, engine)
+
+
+def recent_journal_entries(engine: Engine, limit: int = 14) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT entry_date, entry_type, title, updated_at
+        FROM journal_entries
+        ORDER BY entry_date DESC, updated_at DESC
         LIMIT :limit
         """
     )
