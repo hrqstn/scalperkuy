@@ -111,13 +111,125 @@ def market_data_freshness(engine: Engine, stale_threshold_seconds: int, symbols:
 def recent_trades(engine: Engine, limit: int = 25) -> pd.DataFrame:
     query = text(
         """
-        SELECT symbol, side, status, entry_time, exit_time, entry_price, exit_price, pnl_idr, exit_reason
+        SELECT
+            id,
+            symbol,
+            side,
+            status,
+            entry_time,
+            exit_time,
+            entry_price,
+            exit_price,
+            quantity,
+            notional_idr,
+            take_profit_price,
+            stop_loss_price,
+            pnl_idr,
+            pnl_percent,
+            fee_estimate_idr,
+            slippage_estimate_idr,
+            exit_reason
         FROM paper_trades
         ORDER BY created_at DESC
         LIMIT :limit
         """
     )
     return pd.read_sql_query(query, engine, params={"limit": limit})
+
+
+def open_positions(engine: Engine) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT
+            id,
+            symbol,
+            side,
+            entry_time,
+            entry_price,
+            quantity,
+            notional_idr,
+            take_profit_price,
+            stop_loss_price,
+            fee_estimate_idr,
+            slippage_estimate_idr
+        FROM paper_trades
+        WHERE status = 'OPEN'
+        ORDER BY entry_time DESC
+        """
+    )
+    return pd.read_sql_query(query, engine)
+
+
+def signal_summary(engine: Engine, limit_hours: int = 24) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT
+            decision,
+            coalesce(skip_reason, 'TAKE') AS reason,
+            count(*) AS rows
+        FROM paper_signals
+        WHERE timestamp >= now() - (:limit_hours * interval '1 hour')
+        GROUP BY decision, coalesce(skip_reason, 'TAKE')
+        ORDER BY rows DESC
+        LIMIT 25
+        """
+    )
+    return pd.read_sql_query(query, engine, params={"limit_hours": limit_hours})
+
+
+def recent_signals(engine: Engine, limit: int = 50) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT
+            timestamp,
+            symbol,
+            strategy_name,
+            decision,
+            side,
+            confidence,
+            reason,
+            skip_reason
+        FROM paper_signals
+        ORDER BY timestamp DESC
+        LIMIT :limit
+        """
+    )
+    return pd.read_sql_query(query, engine, params={"limit": limit})
+
+
+def paper_performance(engine: Engine) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT
+            count(*) FILTER (WHERE status = 'CLOSED') AS closed_trades,
+            count(*) FILTER (WHERE status = 'OPEN') AS open_trades,
+            coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED'), 0) AS realized_pnl_idr,
+            coalesce(avg(pnl_percent) FILTER (WHERE status = 'CLOSED'), 0) AS avg_pnl_percent,
+            count(*) FILTER (WHERE status = 'CLOSED' AND pnl_idr > 0) AS wins,
+            count(*) FILTER (WHERE status = 'CLOSED' AND pnl_idr < 0) AS losses,
+            coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED' AND pnl_idr > 0), 0) AS gross_profit_idr,
+            abs(coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED' AND pnl_idr < 0), 0)) AS gross_loss_idr,
+            coalesce(sum(fee_estimate_idr) FILTER (WHERE status = 'CLOSED'), 0) AS fees_idr,
+            coalesce(sum(slippage_estimate_idr) FILTER (WHERE status = 'CLOSED'), 0) AS slippage_idr
+        FROM paper_trades
+        """
+    )
+    return pd.read_sql_query(query, engine)
+
+
+def equity_curve(engine: Engine) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT
+            exit_time,
+            pnl_idr,
+            sum(pnl_idr) OVER (ORDER BY exit_time, id) AS cumulative_pnl_idr
+        FROM paper_trades
+        WHERE status = 'CLOSED' AND exit_time IS NOT NULL
+        ORDER BY exit_time
+        """
+    )
+    return pd.read_sql_query(query, engine)
 
 
 def recent_health_events(engine: Engine, limit: int = 25) -> pd.DataFrame:

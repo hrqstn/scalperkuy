@@ -93,10 +93,61 @@ elif page == "Market":
 
 elif page == "Paper Trading":
     st.subheader("Paper Trading")
-    st.info("Paper trader execution is intentionally not enabled in milestone 1. Market collection stays independent.")
+    st.caption("Paper-only simulation. No live orders, no exchange private key.")
+    performance = queries.paper_performance(engine)
+    open_positions = queries.open_positions(engine)
     trades = queries.recent_trades(engine)
+    signal_summary = queries.signal_summary(engine)
+    recent_signals = queries.recent_signals(engine)
+    equity_curve = queries.equity_curve(engine)
+
+    if not performance.empty:
+        row = performance.iloc[0]
+        closed_trades = int(row["closed_trades"] or 0)
+        wins = int(row["wins"] or 0)
+        losses = int(row["losses"] or 0)
+        gross_loss = float(row["gross_loss_idr"] or 0)
+        gross_profit = float(row["gross_profit_idr"] or 0)
+        win_rate = (wins / closed_trades * 100) if closed_trades else 0
+        profit_factor = (gross_profit / gross_loss) if gross_loss else 0
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Realized PnL", f"Rp{float(row['realized_pnl_idr']):,.0f}")
+        col2.metric("Closed trades", closed_trades)
+        col3.metric("Win rate", f"{win_rate:.1f}%")
+        col4.metric("Profit factor", f"{profit_factor:.2f}")
+
+        col5, col6, col7, col8 = st.columns(4)
+        col5.metric("Open trades", int(row["open_trades"] or 0))
+        col6.metric("Avg PnL", f"{float(row['avg_pnl_percent']):.3f}%")
+        col7.metric("Fees", f"Rp{float(row['fees_idr']):,.0f}")
+        col8.metric("Slippage", f"Rp{float(row['slippage_idr']):,.0f}")
+
+    if not equity_curve.empty:
+        fig = go.Figure(
+            data=[
+                go.Scatter(
+                    x=equity_curve["exit_time"],
+                    y=equity_curve["cumulative_pnl_idr"],
+                    mode="lines+markers",
+                    name="Cumulative PnL",
+                )
+            ]
+        )
+        fig.update_layout(height=360)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.write("Open positions")
+    st.dataframe(open_positions, use_container_width=True, hide_index=True)
+
     st.write("Recent paper trades")
     st.dataframe(trades, use_container_width=True, hide_index=True)
+
+    st.write("Signal summary, last 24h")
+    st.dataframe(signal_summary, use_container_width=True, hide_index=True)
+
+    st.write("Recent signals")
+    st.dataframe(recent_signals, use_container_width=True, hide_index=True)
 
 else:
     st.subheader("Journal")
