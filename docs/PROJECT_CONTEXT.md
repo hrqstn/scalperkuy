@@ -292,6 +292,41 @@ Current paper trader v0 baseline:
 - Signals are written to `paper_signals`.
 - Trades are written to `paper_trades`.
 
+## Live Observations
+
+Keep this section updated with important observations from real paper runs.
+
+### 2026-04-21 Initial Paper Trades
+
+First observed paper trades after enabling `micro_momentum_burst_v0`:
+
+- 2 closed trades.
+- 0 wins, 2 losses.
+- Realized PnL around `-Rp953`.
+- Fees around `Rp1,000`.
+- Slippage estimate around `Rp200`.
+- Both trades exited via `momentum_faded`.
+- BTC trade:
+  - entered around `76,323.2516`
+  - exited around `76,314.724`
+  - net PnL around `-Rp627.93`
+  - exit reason: `momentum_faded`
+- ETH trade:
+  - entered around `2,317.5034`
+  - exited around `2,320.0559`
+  - net PnL around `-Rp324.65`
+  - exit reason: `momentum_faded`
+  - gross price move was favorable, but net result was still negative because fee/slippage dominated.
+
+Interpretation:
+
+- Do not tune the strategy based on only 2 trades.
+- Early evidence confirms why conservative paper simulation matters.
+- Fee/slippage drag is material relative to small scalping targets.
+- `momentum_faded` dynamic exit may be too sensitive, but wait for at least `10-20` closed trades before changing it.
+- If many losses exit via `momentum_faded`, consider requiring momentum fade confirmation for 2-3 minutes or combining it with price weakness.
+- If many trades are small gross winners but net losers, revisit fee assumptions, TP bps, minimum volatility, and expected edge filter.
+
 Bot evolution loop:
 
 1. Collect raw market data.
