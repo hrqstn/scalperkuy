@@ -35,7 +35,8 @@ Yang sudah disiapkan:
 - Streamlit dashboard untuk system health, market data freshness, row counts, latest quotes, latest candles, dan candle chart.
 - Aggregator 1 menit untuk mengubah raw quotes/trades/order book menjadi `market_features_1m`.
 - Paper-trading risk/strategy skeleton tanpa live execution.
-- `paper_trader` dan `reporter` masih standby di milestone 1, hanya menulis service health.
+- `paper_trader` menjalankan simulasi konservatif jika `paper_trading.enabled: true`.
+- `reporter` masih standby di milestone 1, hanya menulis service health.
 
 ## Quick start
 
@@ -83,7 +84,22 @@ aggregation:
   enabled: true
   interval_seconds: 60
   lookback_minutes: 180
+paper_trading:
+  enabled: true
+  strategy_name: micro_momentum_burst_v0
+  fee_rate_bps: 10
+  slippage_bps: 2
+  take_profit_bps: 40
+  stop_loss_bps: 20
 ```
+
+Paper trader bersifat paper-only:
+
+- tidak ada live order
+- entry long memakai ask + slippage
+- exit long memakai bid - slippage
+- PnL net memotong fee dan slippage
+- jika data stale atau sinyal kurang kuat, entry di-skip
 
 Context handoff untuk chat/session berikutnya ada di `docs/PROJECT_CONTEXT.md`.
 

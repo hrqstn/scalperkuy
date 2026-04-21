@@ -45,6 +45,26 @@ aggregation:
   interval_seconds: 60
   lookback_minutes: 180
 
+paper_trading:
+  enabled: true
+  interval_seconds: 30
+  strategy_name: micro_momentum_burst_v0
+  usdt_idr_rate: 16000
+  fee_rate_bps: 10
+  slippage_bps: 2
+  take_profit_bps: 40
+  stop_loss_bps: 20
+  max_holding_minutes: 5
+  cooldown_after_trade_seconds: 300
+  cooldown_after_loss_seconds: 900
+  max_feature_age_seconds: 180
+  min_quote_count: 3
+  min_trade_count: 3
+  min_order_book_count: 3
+  min_trade_flow_imbalance: 0.35
+  min_orderbook_imbalance: 0.15
+  min_volatility_bps: 2.0
+
 tokocrypto:
   base_url: https://www.tokocrypto.site
   request_timeout_seconds: 10

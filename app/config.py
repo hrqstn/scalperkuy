@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 class RiskConfig(BaseModel):
     daily_profit_target_percent: float = 1.0
-    daily_max_loss_percent: float = 1.0
+    daily_max_loss_percent: float = 0.5
     risk_per_trade_percent: float = 0.1
     max_position_size_percent: float = 25.0
     max_trades_per_day: int = 10
@@ -44,6 +44,27 @@ class AggregationConfig(BaseModel):
     lookback_minutes: int = 180
 
 
+class PaperTradingConfig(BaseModel):
+    enabled: bool = False
+    interval_seconds: int = 30
+    strategy_name: str = "micro_momentum_burst_v0"
+    usdt_idr_rate: float = 16_000.0
+    fee_rate_bps: float = 10.0
+    slippage_bps: float = 2.0
+    take_profit_bps: float = 40.0
+    stop_loss_bps: float = 20.0
+    max_holding_minutes: int = 5
+    cooldown_after_trade_seconds: int = 300
+    cooldown_after_loss_seconds: int = 900
+    max_feature_age_seconds: int = 180
+    min_quote_count: int = 3
+    min_trade_count: int = 3
+    min_order_book_count: int = 3
+    min_trade_flow_imbalance: float = 0.35
+    min_orderbook_imbalance: float = 0.15
+    min_volatility_bps: float = 2.0
+
+
 class TokocryptoConfig(BaseModel):
     base_url: str = "https://www.tokocrypto.site"
     request_timeout_seconds: int = 10
@@ -67,6 +88,7 @@ class AppConfig(BaseModel):
     compounding: CompoundingConfig = Field(default_factory=CompoundingConfig)
     data: DataConfig = Field(default_factory=DataConfig)
     aggregation: AggregationConfig = Field(default_factory=AggregationConfig)
+    paper_trading: PaperTradingConfig = Field(default_factory=PaperTradingConfig)
     tokocrypto: TokocryptoConfig = Field(default_factory=TokocryptoConfig)
     alerts_config: AlertsConfig = Field(default_factory=AlertsConfig)
     database_url: str = "postgresql+psycopg://scalperkuy:scalperkuy_dev_password@postgres:5432/scalperkuy"

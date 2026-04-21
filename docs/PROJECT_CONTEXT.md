@@ -31,7 +31,7 @@ Services:
 - `collector`: active market data collector
 - `aggregator`: active 1m market feature aggregator
 - `dashboard`: active Streamlit dashboard
-- `paper_trader`: standby, no entries yet
+- `paper_trader`: active conservative paper trader when `paper_trading.enabled: true`
 - `reporter`: standby, no summaries yet
 
 ## Hard Rules
@@ -72,6 +72,7 @@ Current intervals:
 - Tokocrypto request retry/backoff for temporary DNS/API failures such as 504 gateway timeout.
 - Collector storing candles, quotes, recent trades, and order book snapshots.
 - Aggregator materializing 1m market features into `market_features_1m`.
+- Conservative paper trader baseline using `micro_momentum_burst_v0`.
 - Service health writes with throttled `ok` heartbeat.
 - Discord alerts:
   - collector startup
@@ -266,6 +267,30 @@ Paper trader honesty rules:
 - Always calculate gross PnL and net PnL separately.
 - Net PnL must include fees, spread cost, and slippage estimate.
 - It is better to underestimate paper profit than to discover fake edge in live trading.
+
+Current paper trader v0 baseline:
+
+- Enabled through `paper_trading.enabled`.
+- Uses `market_features_1m` and latest quote.
+- Long-only.
+- One open position per symbol.
+- Entry price: ask plus slippage.
+- Exit price: bid minus slippage.
+- TP/SL configured in bps.
+- Dynamic exits:
+  - TP
+  - SL
+  - max holding time
+  - trade flow turns negative
+  - order book imbalance turns negative
+- Daily risk manager blocks entries after:
+  - daily max loss
+  - daily profit target
+  - max trades/day
+  - max consecutive losses
+  - spread too wide
+- Signals are written to `paper_signals`.
+- Trades are written to `paper_trades`.
 
 Bot evolution loop:
 
