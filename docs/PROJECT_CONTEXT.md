@@ -347,6 +347,43 @@ Interpretation:
 - If many losses exit via `momentum_faded`, consider requiring momentum fade confirmation for 2-3 minutes or combining it with price weakness.
 - If many trades are small gross winners but net losers, revisit fee assumptions, TP bps, minimum volatility, and expected edge filter.
 
+### 2026-04-22 Morning Check
+
+Observed from dashboard around morning Asia/Jakarta:
+
+- All core services were `ok`: collector, aggregator, paper_trader, reporter.
+- Market data freshness was `fresh` for candles, quotes, trades, and order book.
+- Database rows were growing:
+  - `market_candles`: around `8,675`
+  - `market_features_1m`: around `7,879`
+  - `market_quotes`: around `90,036`
+  - `market_trades`: around `824,583`
+  - `order_book_snapshots`: around `46,605`
+  - `paper_signals`: around `4,858`
+  - `paper_trades`: `4`
+  - `journal_entries`: `2`
+- Paper trading had `4` closed trades, all losses.
+- Recent trades showed BTC/ETH long entries exited with net losses.
+- Signal summary last 24h:
+  - `trade flow not bullish enough`: `1,026`
+  - `not enough quote samples`: `936`
+  - `not enough order book samples`: `866`
+  - `volatility too low to cover costs`: `560`
+  - `order book imbalance not bullish enough`: `442`
+  - `not enough trade samples`: `396`
+  - `stale market data`: `292`
+  - `max consecutive losses reached`: `212`
+  - `cooldown active`: `120`
+  - `TAKE`: `4`
+
+Interpretation:
+
+- Collector/aggregator health is good.
+- Paper trader is conservative and mostly skipping.
+- `max consecutive losses reached` is expected after early losses and protects the account.
+- `not enough quote/order book/trade samples` was too frequent. This is likely because paper trader read the currently forming 1m feature bucket. Code was changed so paper trader reads only the latest completed 1m feature.
+- Do not tune strategy edge yet; first reduce timing/noise skips and collect more closed trades.
+
 Bot evolution loop:
 
 1. Collect raw market data.

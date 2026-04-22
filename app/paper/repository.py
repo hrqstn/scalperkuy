@@ -21,6 +21,7 @@ class PaperTradingRepository:
                     SELECT *
                     FROM market_features_1m
                     WHERE symbol = :symbol
+                      AND open_time <= date_trunc('minute', now() - interval '1 minute')
                     ORDER BY open_time DESC
                     LIMIT 1
                     """
