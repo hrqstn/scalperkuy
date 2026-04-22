@@ -34,6 +34,7 @@ Yang sudah disiapkan:
 - Tokocrypto request retry/backoff untuk error sementara seperti DNS failure atau HTTP 504.
 - Streamlit dashboard untuk system health, market data freshness, row counts, latest quotes, latest candles, dan candle chart.
 - Aggregator 1 menit untuk mengubah raw quotes/trades/order book menjadi `market_features_1m`.
+- Data quality fields di `market_features_1m`: `quality_score`, `is_tradeable_minute`, dan `quality_flags`.
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` menjalankan simulasi konservatif jika `paper_trading.enabled: true`.
 - `reporter` membuat deterministic research journal tanpa Gemini.

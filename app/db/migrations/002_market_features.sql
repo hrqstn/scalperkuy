@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS market_features_1m (
     bid_depth_top20_avg NUMERIC(28, 12),
     ask_depth_top20_avg NUMERIC(28, 12),
     volatility_1m NUMERIC(18, 8),
+    quality_score NUMERIC(5, 2),
+    is_tradeable_minute BOOLEAN NOT NULL DEFAULT false,
+    quality_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (exchange, symbol, open_time)

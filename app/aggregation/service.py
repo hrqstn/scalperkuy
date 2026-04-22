@@ -174,6 +174,22 @@ class AggregatorService:
                 LEFT JOIN quotes USING (exchange, symbol, open_time)
                 LEFT JOIN trades USING (exchange, symbol, open_time)
                 LEFT JOIN order_books USING (exchange, symbol, open_time)
+            ),
+            quality_rows AS (
+                SELECT
+                    feature_rows.*,
+                    array_remove(
+                        ARRAY[
+                            CASE WHEN candle_close IS NULL THEN 'missing_candle' END,
+                            CASE WHEN quote_count < :min_quote_count THEN 'low_quote_samples' END,
+                            CASE WHEN trade_count < :min_trade_count THEN 'low_trade_samples' END,
+                            CASE WHEN order_book_count < :min_order_book_count THEN 'low_order_book_samples' END,
+                            CASE WHEN coalesce(spread_bps_avg, 0) > :max_spread_bps THEN 'spread_too_wide' END,
+                            CASE WHEN coalesce(volatility_1m, 0) < :min_volatility_bps THEN 'volatility_too_low' END
+                        ]::text[],
+                        NULL
+                    ) AS quality_flags_array
+                FROM feature_rows
             )
             INSERT INTO market_features_1m (
                 exchange,
@@ -205,6 +221,9 @@ class AggregatorService:
                 bid_depth_top20_avg,
                 ask_depth_top20_avg,
                 volatility_1m,
+                quality_score,
+                is_tradeable_minute,
+                quality_flags,
                 updated_at
             )
             SELECT
@@ -237,8 +256,11 @@ class AggregatorService:
                 bid_depth_top20_avg,
                 ask_depth_top20_avg,
                 volatility_1m,
+                greatest(0, 100 - 20 * cardinality(quality_flags_array))::numeric(5, 2) AS quality_score,
+                cardinality(quality_flags_array) = 0 AS is_tradeable_minute,
+                to_jsonb(quality_flags_array) AS quality_flags,
                 now()
-            FROM feature_rows
+            FROM quality_rows
             ON CONFLICT (exchange, symbol, open_time)
             DO UPDATE SET
                 candle_open = EXCLUDED.candle_open,
@@ -267,12 +289,25 @@ class AggregatorService:
                 bid_depth_top20_avg = EXCLUDED.bid_depth_top20_avg,
                 ask_depth_top20_avg = EXCLUDED.ask_depth_top20_avg,
                 volatility_1m = EXCLUDED.volatility_1m,
+                quality_score = EXCLUDED.quality_score,
+                is_tradeable_minute = EXCLUDED.is_tradeable_minute,
+                quality_flags = EXCLUDED.quality_flags,
                 updated_at = now()
             RETURNING id
             """
         )
         with self.engine.begin() as conn:
-            rows = conn.execute(statement, {"lookback_minutes": self.config.aggregation.lookback_minutes}).fetchall()
+            rows = conn.execute(
+                statement,
+                {
+                    "lookback_minutes": self.config.aggregation.lookback_minutes,
+                    "min_quote_count": self.config.paper_trading.min_quote_count,
+                    "min_trade_count": self.config.paper_trading.min_trade_count,
+                    "min_order_book_count": self.config.paper_trading.min_order_book_count,
+                    "max_spread_bps": self.config.risk.max_spread_bps,
+                    "min_volatility_bps": self.config.paper_trading.min_volatility_bps,
+                },
+            ).fetchall()
         return len(rows)
 
     def _write_health(self, status: str, message: str) -> None:

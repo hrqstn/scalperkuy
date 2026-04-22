@@ -72,6 +72,7 @@ Current intervals:
 - Tokocrypto request retry/backoff for temporary DNS/API failures such as 504 gateway timeout.
 - Collector storing candles, quotes, recent trades, and order book snapshots.
 - Aggregator materializing 1m market features into `market_features_1m`.
+- Data quality scoring for 1m features via `quality_score`, `is_tradeable_minute`, and `quality_flags`.
 - Conservative paper trader baseline using `micro_momentum_burst_v0`.
 - Deterministic journal entries in `journal_entries`.
 - Service health writes with throttled `ok` heartbeat.
@@ -116,8 +117,22 @@ Aggregator currently materializes these 1m features:
 - average top-20 bid depth
 - average top-20 ask depth
 - 1m volatility bps
+- quality score
+- tradeable minute flag
+- quality flags
 
 This aggregate table is long-term memory for research. It must exist before raw quotes/trades/order book snapshots are purged.
+
+Current data quality flags:
+
+- `missing_candle`
+- `low_quote_samples`
+- `low_trade_samples`
+- `low_order_book_samples`
+- `spread_too_wide`
+- `volatility_too_low`
+
+Dashboard `System` includes a data quality summary for the last 24 hours. This is the beginning of Phase 1 and will later become a gate for paper trading, experiment selection, labeling, and ML datasets.
 
 ## Risk Policy Update
 

@@ -109,6 +109,30 @@ def market_data_freshness(engine: Engine, stale_threshold_seconds: int, symbols:
     return merged.sort_values(["feed", "symbol"])
 
 
+def data_quality_summary(engine: Engine, limit_hours: int = 24) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT
+            symbol,
+            count(*) AS feature_rows,
+            count(*) FILTER (WHERE is_tradeable_minute) AS tradeable_rows,
+            round(count(*) FILTER (WHERE is_tradeable_minute)::numeric / nullif(count(*), 0) * 100, 2) AS tradeable_percent,
+            round(avg(quality_score), 2) AS avg_quality_score,
+            count(*) FILTER (WHERE quality_flags ? 'missing_candle') AS missing_candle,
+            count(*) FILTER (WHERE quality_flags ? 'low_quote_samples') AS low_quote_samples,
+            count(*) FILTER (WHERE quality_flags ? 'low_trade_samples') AS low_trade_samples,
+            count(*) FILTER (WHERE quality_flags ? 'low_order_book_samples') AS low_order_book_samples,
+            count(*) FILTER (WHERE quality_flags ? 'spread_too_wide') AS spread_too_wide,
+            count(*) FILTER (WHERE quality_flags ? 'volatility_too_low') AS volatility_too_low
+        FROM market_features_1m
+        WHERE open_time >= now() - (:limit_hours * interval '1 hour')
+        GROUP BY symbol
+        ORDER BY symbol
+        """
+    )
+    return pd.read_sql_query(query, engine, params={"limit_hours": limit_hours})
+
+
 def recent_trades(engine: Engine, limit: int = 25) -> pd.DataFrame:
     query = text(
         """
