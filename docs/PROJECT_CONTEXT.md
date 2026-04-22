@@ -453,3 +453,150 @@ Reporter should come after paper trader has useful data:
 1. Start with deterministic daily summary.
 2. Add Gemini only for narrative summaries later.
 3. Never let Gemini calculate or decide trades.
+
+## Calendar Roadmap
+
+Roadmap starts from Wednesday, 2026-04-22. These dates are planning anchors, not hard promises. Move a phase later if data quality, reliability, or paper-trading honesty is not ready.
+
+### 2026-04-22 to 2026-04-28: Phase 0, Pipeline Stability
+
+Focus:
+
+- collector, aggregator, paper trader, reporter stable
+- dashboard and journal running
+- freshness, errors, and disk growth monitored
+- no aggressive strategy tuning yet
+
+Milestone review: 2026-04-28.
+
+### 2026-04-29 to 2026-05-05: Phase 1, Data Quality Layer
+
+Focus:
+
+- quality score per 1m feature
+- missing sample detection
+- spread outlier detection
+- stale/gap flags
+- dashboard data quality panel
+
+Milestone review: 2026-05-05.
+
+### 2026-05-06 to 2026-05-15: Phase 2, Paper Trader v0.2
+
+Focus:
+
+- better honest fill model
+- dynamic exit confirmation
+- conservative TP/SL same-candle handling
+- fee/slippage review
+- daily reset and risk validation
+
+Milestone review: 2026-05-15.
+
+### 2026-05-16 to 2026-05-29: Phase 3, Experiment Framework
+
+Focus:
+
+- `experiment_id`
+- multi-strategy paper simulation
+- compare strict, loose, no dynamic exit, and EMA baseline variants
+- dashboard comparison
+
+Milestone review: 2026-05-29.
+
+### 2026-05-30 to 2026-06-12: Phase 4, Aggregation v2 And Retention
+
+Focus:
+
+- `market_features_5m`
+- long-term aggregates
+- retention jobs
+- disk safety
+
+Milestone review: 2026-06-12.
+
+### 2026-06-13 to 2026-06-26: Phase 5, Labeling
+
+Focus:
+
+- trade candidates
+- TP-before-SL labels
+- conservative label logic
+- candidate dataset
+
+Milestone review: 2026-06-26.
+
+### 2026-06-27 to 2026-07-10: Phase 6, Strategy Evaluation
+
+Focus:
+
+- profit factor
+- expectancy
+- drawdown
+- fee drag
+- performance by hour/regime
+- pick promising strategies
+
+Milestone review: 2026-07-10.
+
+### 2026-07-11 to 2026-08-07: Phase 7, ML Baseline
+
+Focus:
+
+- Logistic Regression baseline
+- LightGBM filter
+- compare rule-only vs ML-filtered
+- no live trading
+
+Milestone review: 2026-08-07.
+
+### 2026-08-08 to 2026-08-28: Phase 8, Walk-forward Validation
+
+Focus:
+
+- rolling train/validation
+- calibration
+- regime stability
+- reject overfit models
+
+Milestone review: 2026-08-28.
+
+### 2026-08-29 to 2026-09-25: Phase 9, Paper Auto Serious Mode
+
+Focus:
+
+- best strategy/filter paper auto
+- monitor 2-4 weeks
+- compare journal vs dashboard vs DB
+- no live trading
+
+Milestone review: 2026-09-25.
+
+### 2026-09-26 to 2026-10-23: Phase 10, Live Tiny Review Only
+
+Focus:
+
+- review 3-6 months evidence
+- decide whether live tiny is even justified
+- if metrics are not boringly convincing, continue paper
+
+Milestone review: 2026-10-23.
+
+Important review dates:
+
+- 2026-04-28: pipeline stability review
+- 2026-05-05: data quality review
+- 2026-05-15: paper trader v0.2 review
+- 2026-05-29: experiment framework review
+- 2026-06-12: retention/aggregation review
+- 2026-06-26: labeling review
+- 2026-07-10: strategy evaluation review
+- 2026-08-07: ML baseline review
+- 2026-08-28: walk-forward review
+- 2026-09-25: paper auto review
+- 2026-10-23: live tiny eligibility review
+
+Suggested calendar habit:
+
+- Weekly Scalperkuy research review every Friday around 12:00 Asia/Jakarta.
+- Bring dashboard screenshots, journal summary, Discord alerts, and the combined DB status query output.

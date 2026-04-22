@@ -106,6 +106,7 @@ Paper trader bersifat paper-only:
 - jika data stale atau sinyal kurang kuat, entry di-skip
 
 Context handoff untuk chat/session berikutnya ada di `docs/PROJECT_CONTEXT.md`.
+Roadmap bertanggal juga ada di bagian `Calendar Roadmap` pada file tersebut.
 
 Untuk override database/port/Discord, edit `.env`:
 
