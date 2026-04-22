@@ -382,6 +382,7 @@ Interpretation:
 - Paper trader is conservative and mostly skipping.
 - `max consecutive losses reached` is expected after early losses and protects the account.
 - `not enough quote/order book/trade samples` was too frequent. This is likely because paper trader read the currently forming 1m feature bucket. Code was changed so paper trader reads only the latest completed 1m feature.
+- `max consecutive losses reached` was later identified as too sticky because consecutive loss counting was global. It should reset by trading date in `Asia/Jakarta`. Code was changed so consecutive losses only count closed trades from the current trading day.
 - Do not tune strategy edge yet; first reduce timing/noise skips and collect more closed trades.
 
 Bot evolution loop:

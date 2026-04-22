@@ -119,7 +119,7 @@ class PaperTraderService:
         decision = risk.evaluate_entry(
             realized_pnl_idr=Decimal(str(daily_stats["realized_pnl_idr"])),
             trade_count=int(daily_stats["trade_count"]),
-            consecutive_losses=self.repo.consecutive_losses(),
+            consecutive_losses=self.repo.consecutive_losses(self.config.timezone),
             spread_bps=Decimal(str(quote["spread_bps"])),
             has_take_profit=True,
             has_stop_loss=True,

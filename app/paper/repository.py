@@ -204,7 +204,8 @@ class PaperTradingRepository:
             ).mappings().one()
         return {"realized_pnl_idr": row["realized_pnl_idr"], "trade_count": row["trade_count"]}
 
-    def consecutive_losses(self) -> int:
+    def consecutive_losses(self, timezone: str) -> int:
+        trading_date = datetime.now(ZoneInfo(timezone)).date()
         with self.engine.begin() as conn:
             rows = conn.execute(
                 text(
@@ -212,10 +213,12 @@ class PaperTradingRepository:
                     SELECT pnl_idr
                     FROM paper_trades
                     WHERE status = 'CLOSED'
+                      AND (entry_time AT TIME ZONE :timezone)::date = :trading_date
                     ORDER BY exit_time DESC
                     LIMIT 20
                     """
-                )
+                ),
+                {"timezone": timezone, "trading_date": trading_date},
             ).all()
         losses = 0
         for row in rows:
