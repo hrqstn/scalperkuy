@@ -170,7 +170,7 @@ def recent_trades(engine: Engine, limit: int = 25, experiment_name: str | None =
             slippage_estimate_idr,
             exit_reason
         FROM paper_trades
-        WHERE (:experiment_name IS NULL OR experiment_name = :experiment_name)
+        WHERE (CAST(:experiment_name AS text) IS NULL OR experiment_name = CAST(:experiment_name AS text))
         ORDER BY created_at DESC
         LIMIT :limit
         """
@@ -197,7 +197,7 @@ def open_positions(engine: Engine, experiment_name: str | None = None) -> pd.Dat
             slippage_estimate_idr
         FROM paper_trades
         WHERE status = 'OPEN'
-          AND (:experiment_name IS NULL OR experiment_name = :experiment_name)
+          AND (CAST(:experiment_name AS text) IS NULL OR experiment_name = CAST(:experiment_name AS text))
         ORDER BY entry_time DESC
         """
     )
@@ -213,7 +213,7 @@ def signal_summary(engine: Engine, limit_hours: int = 24, experiment_name: str |
             count(*) AS rows
         FROM paper_signals
         WHERE timestamp >= now() - (:limit_hours * interval '1 hour')
-          AND (:experiment_name IS NULL OR experiment_name = :experiment_name)
+          AND (CAST(:experiment_name AS text) IS NULL OR experiment_name = CAST(:experiment_name AS text))
         GROUP BY decision, coalesce(skip_reason, 'TAKE')
         ORDER BY rows DESC
         LIMIT 25
@@ -236,7 +236,7 @@ def recent_signals(engine: Engine, limit: int = 50, experiment_name: str | None 
             reason,
             skip_reason
         FROM paper_signals
-        WHERE (:experiment_name IS NULL OR experiment_name = :experiment_name)
+        WHERE (CAST(:experiment_name AS text) IS NULL OR experiment_name = CAST(:experiment_name AS text))
         ORDER BY timestamp DESC
         LIMIT :limit
         """
@@ -259,7 +259,7 @@ def paper_performance(engine: Engine, experiment_name: str | None = None) -> pd.
             coalesce(sum(fee_estimate_idr) FILTER (WHERE status = 'CLOSED'), 0) AS fees_idr,
             coalesce(sum(slippage_estimate_idr) FILTER (WHERE status = 'CLOSED'), 0) AS slippage_idr
         FROM paper_trades
-        WHERE (:experiment_name IS NULL OR experiment_name = :experiment_name)
+        WHERE (CAST(:experiment_name AS text) IS NULL OR experiment_name = CAST(:experiment_name AS text))
         """
     )
     return pd.read_sql_query(query, engine, params={"experiment_name": experiment_name})
@@ -274,7 +274,7 @@ def equity_curve(engine: Engine, experiment_name: str | None = None) -> pd.DataF
             sum(pnl_idr) OVER (ORDER BY exit_time, id) AS cumulative_pnl_idr
         FROM paper_trades
         WHERE status = 'CLOSED' AND exit_time IS NOT NULL
-          AND (:experiment_name IS NULL OR experiment_name = :experiment_name)
+          AND (CAST(:experiment_name AS text) IS NULL OR experiment_name = CAST(:experiment_name AS text))
         ORDER BY exit_time
         """
     )
