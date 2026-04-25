@@ -10,9 +10,10 @@ from app.collector.repository import MarketDataRepository
 from app.config import load_config
 from app.db.models import init_db
 from app.db.session import get_engine
+from app.paper.experiments import ExperimentRuntime, resolve_experiments
 from app.paper.repository import PaperTradingRepository
 from app.paper.risk import RiskManager
-from app.paper.strategy import micro_momentum_burst_signal
+from app.paper.strategy import baseline_long_signal, micro_momentum_burst_signal
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -27,7 +28,10 @@ class PaperTraderService:
         self.health_repo = MarketDataRepository(self.engine, self.config.exchange)
         self.repo = PaperTradingRepository(self.engine)
         self.running = True
-        self.cooldown_until_by_symbol: dict[str, datetime] = {}
+        self.cooldown_until_by_key: dict[tuple[str, str], datetime] = {}
+        self.experiments = resolve_experiments(self.config)
+        experiment_rows = self.repo.sync_experiments([experiment.to_record() for experiment in self.experiments])
+        self.experiment_id_by_name = {row["name"]: int(row["id"]) for row in experiment_rows}
 
     def run(self) -> None:
         self._install_signal_handlers()
@@ -46,34 +50,50 @@ class PaperTraderService:
             time.sleep(self.config.paper_trading.interval_seconds)
 
     def tick(self) -> None:
+        candles_cache: dict[str, object] = {}
         for symbol in self.config.symbols:
             quote = self.repo.latest_quote(symbol)
             feature = self.repo.latest_feature(symbol)
-            if not quote or not feature:
-                self._record_skip(symbol, quote, feature, "missing quote or feature")
-                continue
-            self._manage_open_trade(symbol, quote, feature)
-            if self.repo.open_trade(symbol):
-                continue
-            self._maybe_open_trade(symbol, quote, feature)
+            for experiment in self.experiments:
+                self._manage_open_trade(experiment, symbol, quote, feature)
+                if self.repo.open_trade(symbol, self._experiment_id(experiment)):
+                    continue
+                if not quote or not feature:
+                    self._record_skip(experiment, symbol, quote, feature, "missing quote or feature")
+                    continue
+                self._maybe_open_trade(experiment, symbol, quote, feature, candles_cache)
 
-    def _manage_open_trade(self, symbol: str, quote: dict, feature: dict) -> None:
-        trade = self.repo.open_trade(symbol)
-        if not trade:
+    def _manage_open_trade(
+        self,
+        experiment: ExperimentRuntime,
+        symbol: str,
+        quote: dict | None,
+        feature: dict | None,
+    ) -> None:
+        trade = self.repo.open_trade(symbol, self._experiment_id(experiment))
+        if not trade or not quote:
             return
         now = datetime.now(UTC)
         bid = Decimal(str(quote["bid"]))
-        exit_price = self._apply_slippage(bid, "sell")
+        exit_price = self._apply_slippage(bid, "sell", experiment)
         exit_reason = None
         if exit_price <= Decimal(str(trade["stop_loss_price"])):
             exit_reason = "stop_loss"
         elif exit_price >= Decimal(str(trade["take_profit_price"])):
             exit_reason = "take_profit"
-        elif now - trade["entry_time"] >= timedelta(minutes=self.config.paper_trading.max_holding_minutes):
+        elif now - trade["entry_time"] >= timedelta(minutes=experiment.paper.max_holding_minutes):
             exit_reason = "max_holding_time"
-        elif Decimal(str(feature.get("trade_flow_imbalance") or 0)) < 0:
+        elif (
+            feature
+            and experiment.paper.dynamic_exit_on_trade_flow_negative
+            and Decimal(str(feature.get("trade_flow_imbalance") or 0)) < 0
+        ):
             exit_reason = "momentum_faded"
-        elif Decimal(str(feature.get("orderbook_imbalance_avg") or 0)) < 0:
+        elif (
+            feature
+            and experiment.paper.dynamic_exit_on_orderbook_negative
+            and Decimal(str(feature.get("orderbook_imbalance_avg") or 0)) < 0
+        ):
             exit_reason = "orderbook_flipped"
         if not exit_reason:
             return
@@ -82,9 +102,9 @@ class PaperTraderService:
         quantity = Decimal(str(trade["quantity"]))
         notional_idr = Decimal(str(trade["notional_idr"]))
         gross_pnl_usdt = (exit_price - entry_price) * quantity
-        gross_pnl_idr = gross_pnl_usdt * Decimal(str(self.config.paper_trading.usdt_idr_rate))
-        fee_idr = self._fee_idr(notional_idr, round_trips=1)
-        slippage_idr = self._slippage_idr(notional_idr, round_trips=1)
+        gross_pnl_idr = gross_pnl_usdt * Decimal(str(experiment.paper.usdt_idr_rate))
+        fee_idr = self._fee_idr(notional_idr, round_trips=1, experiment=experiment)
+        slippage_idr = self._slippage_idr(notional_idr, round_trips=1, experiment=experiment)
         pnl_idr = gross_pnl_idr - fee_idr - slippage_idr
         pnl_percent = (pnl_idr / notional_idr * Decimal("100")) if notional_idr > 0 else Decimal("0")
         self.repo.close_trade(
@@ -97,55 +117,73 @@ class PaperTraderService:
             slippage_estimate_idr=slippage_idr,
             exit_reason=exit_reason,
         )
-        cooldown = self.config.paper_trading.cooldown_after_loss_seconds if pnl_idr < 0 else self.config.paper_trading.cooldown_after_trade_seconds
-        self.cooldown_until_by_symbol[symbol] = now + timedelta(seconds=cooldown)
-        logger.info("closed paper trade %s %s pnl_idr=%s", symbol, exit_reason, pnl_idr)
+        cooldown_seconds = (
+            experiment.paper.cooldown_after_loss_seconds if pnl_idr < 0 else experiment.paper.cooldown_after_trade_seconds
+        )
+        self.cooldown_until_by_key[(experiment.name, symbol)] = now + timedelta(seconds=cooldown_seconds)
+        logger.info(
+            "closed paper trade experiment=%s symbol=%s exit_reason=%s pnl_idr=%s",
+            experiment.name,
+            symbol,
+            exit_reason,
+            pnl_idr,
+        )
 
-    def _maybe_open_trade(self, symbol: str, quote: dict, feature: dict) -> None:
+    def _maybe_open_trade(
+        self,
+        experiment: ExperimentRuntime,
+        symbol: str,
+        quote: dict,
+        feature: dict,
+        candles_cache: dict[str, object],
+    ) -> None:
         now = datetime.now(UTC)
-        cooldown_until = self.cooldown_until_by_symbol.get(symbol)
+        cooldown_until = self.cooldown_until_by_key.get((experiment.name, symbol))
         if cooldown_until and now < cooldown_until:
-            self._record_skip(symbol, quote, feature, "cooldown active")
+            self._record_skip(experiment, symbol, quote, feature, "cooldown active")
             return
         feature_age = (now - feature["open_time"]).total_seconds()
         quote_age = (now - quote["timestamp"]).total_seconds()
-        if feature_age > self.config.paper_trading.max_feature_age_seconds or quote_age > self.config.data.stale_data_seconds:
-            self._record_skip(symbol, quote, feature, "stale market data")
+        if feature_age > experiment.paper.max_feature_age_seconds or quote_age > self.config.data.stale_data_seconds:
+            self._record_skip(experiment, symbol, quote, feature, "stale market data")
             return
 
-        signal = micro_momentum_burst_signal(feature, quote, self.config)
-        daily_stats = self.repo.daily_stats(self.config.timezone)
-        risk = RiskManager(self.config.risk, Decimal(str(self.config.starting_balance_idr)))
+        signal = self._generate_signal(experiment, symbol, feature, quote, candles_cache)
+        daily_stats = self.repo.daily_stats(self.config.timezone, self._experiment_id(experiment))
+        risk = RiskManager(experiment.risk, Decimal(str(self.config.starting_balance_idr)))
         decision = risk.evaluate_entry(
             realized_pnl_idr=Decimal(str(daily_stats["realized_pnl_idr"])),
             trade_count=int(daily_stats["trade_count"]),
-            consecutive_losses=self.repo.consecutive_losses(self.config.timezone),
+            consecutive_losses=self.repo.consecutive_losses(self.config.timezone, self._experiment_id(experiment)),
             spread_bps=Decimal(str(quote["spread_bps"])),
             has_take_profit=True,
             has_stop_loss=True,
         )
         if signal.decision != "TAKE":
-            self._record_signal(symbol, signal, "SKIP", signal.reason)
+            self._record_signal(experiment, symbol, signal, "SKIP", signal.reason)
             return
         if not decision.allowed:
-            self._record_signal(symbol, signal, "SKIP", decision.reason)
+            self._record_signal(experiment, symbol, signal, "SKIP", decision.reason)
             return
 
         ask = Decimal(str(quote["ask"]))
-        entry_price = self._apply_slippage(ask, "buy")
-        stop_loss_price = entry_price * (Decimal("1") - Decimal(str(self.config.paper_trading.stop_loss_bps)) / Decimal("10000"))
-        take_profit_price = entry_price * (Decimal("1") + Decimal(str(self.config.paper_trading.take_profit_bps)) / Decimal("10000"))
+        entry_price = self._apply_slippage(ask, "buy", experiment)
+        stop_loss_price = entry_price * (Decimal("1") - Decimal(str(experiment.paper.stop_loss_bps)) / Decimal("10000"))
+        take_profit_price = entry_price * (Decimal("1") + Decimal(str(experiment.paper.take_profit_bps)) / Decimal("10000"))
         risk_per_unit_usdt = entry_price - stop_loss_price
         risk_idr = decision.risk_idr
-        quantity_by_risk = risk_idr / Decimal(str(self.config.paper_trading.usdt_idr_rate)) / risk_per_unit_usdt
-        quantity_by_cap = (decision.max_position_idr / Decimal(str(self.config.paper_trading.usdt_idr_rate))) / entry_price
+        quantity_by_risk = risk_idr / Decimal(str(experiment.paper.usdt_idr_rate)) / risk_per_unit_usdt
+        quantity_by_cap = (decision.max_position_idr / Decimal(str(experiment.paper.usdt_idr_rate))) / entry_price
         quantity = min(quantity_by_risk, quantity_by_cap)
-        notional_idr = quantity * entry_price * Decimal(str(self.config.paper_trading.usdt_idr_rate))
+        notional_idr = quantity * entry_price * Decimal(str(experiment.paper.usdt_idr_rate))
         if quantity <= 0 or notional_idr <= 0:
-            self._record_signal(symbol, signal, "SKIP", "invalid position size")
+            self._record_signal(experiment, symbol, signal, "SKIP", "invalid position size")
             return
 
         self.repo.insert_trade(
+            experiment_id=self._experiment_id(experiment),
+            experiment_name=experiment.name,
+            strategy_name=experiment.strategy_name,
             symbol=symbol,
             side="long",
             entry_time=now,
@@ -154,18 +192,54 @@ class PaperTraderService:
             notional_idr=notional_idr,
             take_profit_price=take_profit_price,
             stop_loss_price=stop_loss_price,
-            fee_estimate_idr=self._fee_idr(notional_idr, round_trips=1),
-            slippage_estimate_idr=self._slippage_idr(notional_idr, round_trips=1),
+            fee_estimate_idr=self._fee_idr(notional_idr, round_trips=1, experiment=experiment),
+            slippage_estimate_idr=self._slippage_idr(notional_idr, round_trips=1, experiment=experiment),
         )
-        self._record_signal(symbol, signal, "TAKE", None)
-        logger.info("opened paper trade %s entry=%s tp=%s sl=%s", symbol, entry_price, take_profit_price, stop_loss_price)
+        self._record_signal(experiment, symbol, signal, "TAKE", None)
+        logger.info(
+            "opened paper trade experiment=%s symbol=%s entry=%s tp=%s sl=%s",
+            experiment.name,
+            symbol,
+            entry_price,
+            take_profit_price,
+            stop_loss_price,
+        )
 
-    def _record_skip(self, symbol: str, quote: dict | None, feature: dict | None, reason: str) -> None:
+    def _generate_signal(
+        self,
+        experiment: ExperimentRuntime,
+        symbol: str,
+        feature: dict,
+        quote: dict,
+        candles_cache: dict[str, object],
+    ):
+        if experiment.strategy_name.startswith("ema_baseline"):
+            candles = candles_cache.get(symbol)
+            if candles is None:
+                candles = self.repo.recent_candles(symbol)
+                candles_cache[symbol] = candles
+            return baseline_long_signal(
+                candles,
+                Decimal(str(quote["spread_bps"])),
+                Decimal(str(experiment.risk.max_spread_bps)),
+            )
+        return micro_momentum_burst_signal(feature, quote, experiment.paper, experiment.risk)
+
+    def _record_skip(
+        self,
+        experiment: ExperimentRuntime,
+        symbol: str,
+        quote: dict | None,
+        feature: dict | None,
+        reason: str,
+    ) -> None:
         features = {"quote": quote or {}, "feature": feature or {}}
         self.repo.insert_signal(
             timestamp=datetime.now(UTC),
             symbol=symbol,
-            strategy_name=self.config.paper_trading.strategy_name,
+            experiment_id=self._experiment_id(experiment),
+            experiment_name=experiment.name,
+            strategy_name=experiment.strategy_name,
             side=None,
             confidence=Decimal("0"),
             reason=reason,
@@ -174,11 +248,13 @@ class PaperTraderService:
             skip_reason=reason,
         )
 
-    def _record_signal(self, symbol: str, signal, decision: str, skip_reason: str | None) -> None:
+    def _record_signal(self, experiment: ExperimentRuntime, symbol: str, signal, decision: str, skip_reason: str | None) -> None:
         self.repo.insert_signal(
             timestamp=datetime.now(UTC),
             symbol=symbol,
-            strategy_name=self.config.paper_trading.strategy_name,
+            experiment_id=self._experiment_id(experiment),
+            experiment_name=experiment.name,
+            strategy_name=experiment.strategy_name,
             side=signal.side,
             confidence=signal.confidence,
             reason=signal.reason,
@@ -187,17 +263,30 @@ class PaperTraderService:
             skip_reason=skip_reason,
         )
 
-    def _apply_slippage(self, price: Decimal, side: str) -> Decimal:
-        multiplier = Decimal(str(self.config.paper_trading.slippage_bps)) / Decimal("10000")
+    def _apply_slippage(self, price: Decimal, side: str, experiment: ExperimentRuntime) -> Decimal:
+        multiplier = Decimal(str(experiment.paper.slippage_bps)) / Decimal("10000")
         if side == "buy":
             return price * (Decimal("1") + multiplier)
         return price * (Decimal("1") - multiplier)
 
-    def _fee_idr(self, notional_idr: Decimal, *, round_trips: int) -> Decimal:
-        return notional_idr * Decimal(str(self.config.paper_trading.fee_rate_bps)) / Decimal("10000") * Decimal(str(round_trips * 2))
+    def _fee_idr(self, notional_idr: Decimal, *, round_trips: int, experiment: ExperimentRuntime) -> Decimal:
+        return (
+            notional_idr
+            * Decimal(str(experiment.paper.fee_rate_bps))
+            / Decimal("10000")
+            * Decimal(str(round_trips * 2))
+        )
 
-    def _slippage_idr(self, notional_idr: Decimal, *, round_trips: int) -> Decimal:
-        return notional_idr * Decimal(str(self.config.paper_trading.slippage_bps)) / Decimal("10000") * Decimal(str(round_trips * 2))
+    def _slippage_idr(self, notional_idr: Decimal, *, round_trips: int, experiment: ExperimentRuntime) -> Decimal:
+        return (
+            notional_idr
+            * Decimal(str(experiment.paper.slippage_bps))
+            / Decimal("10000")
+            * Decimal(str(round_trips * 2))
+        )
+
+    def _experiment_id(self, experiment: ExperimentRuntime) -> int:
+        return self.experiment_id_by_name[experiment.name]
 
     def _write_health(self, status: str, message: str) -> None:
         self.health_repo.write_health(
@@ -206,7 +295,12 @@ class PaperTraderService:
             message,
             timestamp=datetime.now(UTC),
             last_success_at=datetime.now(UTC) if status in {"ok", "standby"} else None,
-            metadata_json={"mode": "paper", "live_trading": False, "enabled": self.config.paper_trading.enabled},
+            metadata_json={
+                "mode": "paper",
+                "live_trading": False,
+                "enabled": self.config.paper_trading.enabled,
+                "experiments": [experiment.name for experiment in self.experiments],
+            },
         )
 
     def _install_signal_handlers(self) -> None:

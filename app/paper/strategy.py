@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pandas as pd
 
-from app.config import AppConfig
+from app.config import PaperTradingConfig, RiskConfig
 
 
 @dataclass(frozen=True)
@@ -45,9 +45,7 @@ def baseline_long_signal(candles: pd.DataFrame, spread_bps: Decimal, max_spread_
     return Signal("TAKE", "long", Decimal("0.55"), "baseline long conditions met", features)
 
 
-def micro_momentum_burst_signal(feature: dict, quote: dict, config: AppConfig) -> Signal:
-    paper = config.paper_trading
-    risk = config.risk
+def micro_momentum_burst_signal(feature: dict, quote: dict, paper: PaperTradingConfig, risk: RiskConfig) -> Signal:
     features = {
         "feature_open_time": feature.get("open_time"),
         "quote_timestamp": quote.get("timestamp"),

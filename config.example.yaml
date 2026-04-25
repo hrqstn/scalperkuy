@@ -64,6 +64,31 @@ paper_trading:
   min_trade_flow_imbalance: 0.35
   min_orderbook_imbalance: 0.15
   min_volatility_bps: 2.0
+  dynamic_exit_on_trade_flow_negative: true
+  dynamic_exit_on_orderbook_negative: true
+  experiments:
+    - name: micro_burst_strict_v0
+      strategy_name: micro_momentum_burst_v0
+    - name: micro_burst_loose_v0
+      strategy_name: micro_momentum_burst_v0
+      take_profit_bps: 45
+      stop_loss_bps: 20
+      min_trade_flow_imbalance: 0.2
+      min_orderbook_imbalance: 0.08
+      min_volatility_bps: 1.5
+    - name: micro_burst_no_dynamic_exit_v0
+      strategy_name: micro_momentum_burst_v0
+      max_holding_minutes: 7
+      dynamic_exit_on_trade_flow_negative: false
+      dynamic_exit_on_orderbook_negative: false
+    - name: ema_baseline_v0
+      strategy_name: ema_baseline_v0
+      take_profit_bps: 60
+      stop_loss_bps: 25
+      max_holding_minutes: 10
+      min_volatility_bps: 2.5
+      risk:
+        max_trades_per_day: 6
 
 reporting:
   enabled: true

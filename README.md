@@ -37,6 +37,7 @@ Yang sudah disiapkan:
 - Data quality fields di `market_features_1m`: `quality_score`, `is_tradeable_minute`, dan `quality_flags`.
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` menjalankan simulasi konservatif jika `paper_trading.enabled: true`.
+- Experiment framework untuk menjalankan beberapa strategy/risk variant di data yang sama.
 - `reporter` membuat deterministic research journal tanpa Gemini.
 
 ## Quick start
@@ -92,6 +93,15 @@ paper_trading:
   slippage_bps: 2
   take_profit_bps: 40
   stop_loss_bps: 20
+  experiments:
+    - name: micro_burst_strict_v0
+      strategy_name: micro_momentum_burst_v0
+    - name: micro_burst_loose_v0
+      strategy_name: micro_momentum_burst_v0
+    - name: micro_burst_no_dynamic_exit_v0
+      strategy_name: micro_momentum_burst_v0
+    - name: ema_baseline_v0
+      strategy_name: ema_baseline_v0
 reporting:
   enabled: true
   interval_seconds: 900
@@ -105,6 +115,7 @@ Paper trader bersifat paper-only:
 - exit long memakai bid - slippage
 - PnL net memotong fee dan slippage
 - jika data stale atau sinyal kurang kuat, entry di-skip
+- hasil dipisah per `experiment_name`, jadi beberapa strategi bisa dibandingkan di dashboard
 
 Context handoff untuk chat/session berikutnya ada di `docs/PROJECT_CONTEXT.md`.
 Roadmap bertanggal juga ada di bagian `Calendar Roadmap` pada file tersebut.
@@ -154,6 +165,7 @@ Tabel utama:
 - `market_trades`
 - `order_book_snapshots`
 - `market_features_1m`
+- `experiments`
 - `paper_signals`
 - `paper_trades`
 - `daily_performance`

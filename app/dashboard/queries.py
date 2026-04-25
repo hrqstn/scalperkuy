@@ -58,6 +58,8 @@ def candle_history(engine: Engine, symbol: str, limit: int = 120) -> pd.DataFram
 def table_counts(engine: Engine) -> pd.DataFrame:
     query = text(
         """
+        SELECT 'experiments' AS table_name, count(*) AS rows FROM experiments
+        UNION ALL
         SELECT 'market_candles' AS table_name, count(*) AS rows FROM market_candles
         UNION ALL SELECT 'market_quotes', count(*) FROM market_quotes
         UNION ALL SELECT 'market_trades', count(*) FROM market_trades
@@ -68,6 +70,17 @@ def table_counts(engine: Engine) -> pd.DataFrame:
         UNION ALL SELECT 'journal_entries', count(*) FROM journal_entries
         UNION ALL SELECT 'service_health', count(*) FROM service_health
         ORDER BY table_name
+        """
+    )
+    return pd.read_sql_query(query, engine)
+
+
+def list_experiments(engine: Engine) -> pd.DataFrame:
+    query = text(
+        """
+        SELECT id, name AS experiment_name, strategy_name, status, updated_at
+        FROM experiments
+        ORDER BY name
         """
     )
     return pd.read_sql_query(query, engine)
@@ -133,11 +146,13 @@ def data_quality_summary(engine: Engine, limit_hours: int = 24) -> pd.DataFrame:
     return pd.read_sql_query(query, engine, params={"limit_hours": limit_hours})
 
 
-def recent_trades(engine: Engine, limit: int = 25) -> pd.DataFrame:
+def recent_trades(engine: Engine, limit: int = 25, experiment_name: str | None = None) -> pd.DataFrame:
     query = text(
         """
         SELECT
             id,
+            experiment_name,
+            strategy_name,
             symbol,
             side,
             status,
@@ -155,18 +170,21 @@ def recent_trades(engine: Engine, limit: int = 25) -> pd.DataFrame:
             slippage_estimate_idr,
             exit_reason
         FROM paper_trades
+        WHERE (:experiment_name IS NULL OR experiment_name = :experiment_name)
         ORDER BY created_at DESC
         LIMIT :limit
         """
     )
-    return pd.read_sql_query(query, engine, params={"limit": limit})
+    return pd.read_sql_query(query, engine, params={"limit": limit, "experiment_name": experiment_name})
 
 
-def open_positions(engine: Engine) -> pd.DataFrame:
+def open_positions(engine: Engine, experiment_name: str | None = None) -> pd.DataFrame:
     query = text(
         """
         SELECT
             id,
+            experiment_name,
+            strategy_name,
             symbol,
             side,
             entry_time,
@@ -179,13 +197,14 @@ def open_positions(engine: Engine) -> pd.DataFrame:
             slippage_estimate_idr
         FROM paper_trades
         WHERE status = 'OPEN'
+          AND (:experiment_name IS NULL OR experiment_name = :experiment_name)
         ORDER BY entry_time DESC
         """
     )
-    return pd.read_sql_query(query, engine)
+    return pd.read_sql_query(query, engine, params={"experiment_name": experiment_name})
 
 
-def signal_summary(engine: Engine, limit_hours: int = 24) -> pd.DataFrame:
+def signal_summary(engine: Engine, limit_hours: int = 24, experiment_name: str | None = None) -> pd.DataFrame:
     query = text(
         """
         SELECT
@@ -194,19 +213,21 @@ def signal_summary(engine: Engine, limit_hours: int = 24) -> pd.DataFrame:
             count(*) AS rows
         FROM paper_signals
         WHERE timestamp >= now() - (:limit_hours * interval '1 hour')
+          AND (:experiment_name IS NULL OR experiment_name = :experiment_name)
         GROUP BY decision, coalesce(skip_reason, 'TAKE')
         ORDER BY rows DESC
         LIMIT 25
         """
     )
-    return pd.read_sql_query(query, engine, params={"limit_hours": limit_hours})
+    return pd.read_sql_query(query, engine, params={"limit_hours": limit_hours, "experiment_name": experiment_name})
 
 
-def recent_signals(engine: Engine, limit: int = 50) -> pd.DataFrame:
+def recent_signals(engine: Engine, limit: int = 50, experiment_name: str | None = None) -> pd.DataFrame:
     query = text(
         """
         SELECT
             timestamp,
+            experiment_name,
             symbol,
             strategy_name,
             decision,
@@ -215,14 +236,15 @@ def recent_signals(engine: Engine, limit: int = 50) -> pd.DataFrame:
             reason,
             skip_reason
         FROM paper_signals
+        WHERE (:experiment_name IS NULL OR experiment_name = :experiment_name)
         ORDER BY timestamp DESC
         LIMIT :limit
         """
     )
-    return pd.read_sql_query(query, engine, params={"limit": limit})
+    return pd.read_sql_query(query, engine, params={"limit": limit, "experiment_name": experiment_name})
 
 
-def paper_performance(engine: Engine) -> pd.DataFrame:
+def paper_performance(engine: Engine, experiment_name: str | None = None) -> pd.DataFrame:
     query = text(
         """
         SELECT
@@ -237,12 +259,13 @@ def paper_performance(engine: Engine) -> pd.DataFrame:
             coalesce(sum(fee_estimate_idr) FILTER (WHERE status = 'CLOSED'), 0) AS fees_idr,
             coalesce(sum(slippage_estimate_idr) FILTER (WHERE status = 'CLOSED'), 0) AS slippage_idr
         FROM paper_trades
+        WHERE (:experiment_name IS NULL OR experiment_name = :experiment_name)
         """
     )
-    return pd.read_sql_query(query, engine)
+    return pd.read_sql_query(query, engine, params={"experiment_name": experiment_name})
 
 
-def equity_curve(engine: Engine) -> pd.DataFrame:
+def equity_curve(engine: Engine, experiment_name: str | None = None) -> pd.DataFrame:
     query = text(
         """
         SELECT
@@ -251,10 +274,70 @@ def equity_curve(engine: Engine) -> pd.DataFrame:
             sum(pnl_idr) OVER (ORDER BY exit_time, id) AS cumulative_pnl_idr
         FROM paper_trades
         WHERE status = 'CLOSED' AND exit_time IS NOT NULL
+          AND (:experiment_name IS NULL OR experiment_name = :experiment_name)
         ORDER BY exit_time
         """
     )
-    return pd.read_sql_query(query, engine)
+    return pd.read_sql_query(query, engine, params={"experiment_name": experiment_name})
+
+
+def experiment_summary(engine: Engine, limit_hours: int = 24) -> pd.DataFrame:
+    query = text(
+        """
+        WITH experiment_names AS (
+            SELECT name AS experiment_name FROM experiments
+            UNION
+            SELECT DISTINCT experiment_name FROM paper_signals WHERE experiment_name IS NOT NULL
+            UNION
+            SELECT DISTINCT experiment_name FROM paper_trades WHERE experiment_name IS NOT NULL
+        ),
+        signal_stats AS (
+            SELECT
+                experiment_name,
+                max(strategy_name) AS strategy_name,
+                count(*) FILTER (WHERE timestamp >= now() - (:limit_hours * interval '1 hour') AND decision = 'TAKE') AS take_signals_24h,
+                count(*) FILTER (WHERE timestamp >= now() - (:limit_hours * interval '1 hour') AND decision = 'SKIP') AS skip_signals_24h
+            FROM paper_signals
+            GROUP BY experiment_name
+        ),
+        trade_stats AS (
+            SELECT
+                experiment_name,
+                max(strategy_name) AS strategy_name,
+                count(*) FILTER (WHERE status = 'CLOSED') AS closed_trades,
+                count(*) FILTER (WHERE status = 'OPEN') AS open_trades,
+                coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED'), 0) AS realized_pnl_idr,
+                count(*) FILTER (WHERE status = 'CLOSED' AND pnl_idr > 0) AS wins,
+                count(*) FILTER (WHERE status = 'CLOSED' AND pnl_idr < 0) AS losses,
+                coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED' AND pnl_idr > 0), 0) AS gross_profit_idr,
+                abs(coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED' AND pnl_idr < 0), 0)) AS gross_loss_idr
+            FROM paper_trades
+            GROUP BY experiment_name
+        )
+        SELECT
+            names.experiment_name,
+            coalesce(experiments.strategy_name, signal_stats.strategy_name, trade_stats.strategy_name, 'unknown') AS strategy_name,
+            coalesce(signal_stats.take_signals_24h, 0) AS take_signals_24h,
+            coalesce(signal_stats.skip_signals_24h, 0) AS skip_signals_24h,
+            coalesce(trade_stats.closed_trades, 0) AS closed_trades,
+            coalesce(trade_stats.open_trades, 0) AS open_trades,
+            coalesce(trade_stats.realized_pnl_idr, 0) AS realized_pnl_idr,
+            CASE
+                WHEN coalesce(trade_stats.closed_trades, 0) = 0 THEN 0
+                ELSE round(coalesce(trade_stats.wins, 0)::numeric / trade_stats.closed_trades * 100, 2)
+            END AS win_rate_percent,
+            CASE
+                WHEN coalesce(trade_stats.gross_loss_idr, 0) = 0 THEN 0
+                ELSE round(coalesce(trade_stats.gross_profit_idr, 0) / nullif(trade_stats.gross_loss_idr, 0), 4)
+            END AS profit_factor
+        FROM experiment_names names
+        LEFT JOIN experiments ON experiments.name = names.experiment_name
+        LEFT JOIN signal_stats ON signal_stats.experiment_name = names.experiment_name
+        LEFT JOIN trade_stats ON trade_stats.experiment_name = names.experiment_name
+        ORDER BY realized_pnl_idr DESC, names.experiment_name
+        """
+    )
+    return pd.read_sql_query(query, engine, params={"limit_hours": limit_hours})
 
 
 def recent_health_events(engine: Engine, limit: int = 25) -> pd.DataFrame:

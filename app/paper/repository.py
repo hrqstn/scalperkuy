@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -46,19 +47,68 @@ class PaperTradingRepository:
             ).mappings().first()
         return dict(row) if row else None
 
-    def open_trade(self, symbol: str) -> dict | None:
+    def recent_candles(self, symbol: str, limit: int = 60) -> pd.DataFrame:
+        query = text(
+            """
+            SELECT open_time, open, high, low, close, volume
+            FROM market_candles
+            WHERE symbol = :symbol
+            ORDER BY open_time DESC
+            LIMIT :limit
+            """
+        )
+        frame = pd.read_sql_query(query, self.engine, params={"symbol": symbol, "limit": limit})
+        return frame.sort_values("open_time")
+
+    def sync_experiments(self, experiments: list[dict]) -> list[dict]:
+        rows: list[dict] = []
+        with self.engine.begin() as conn:
+            for experiment in experiments:
+                row = conn.execute(
+                    text(
+                        """
+                        INSERT INTO experiments (name, strategy_name, status, config_json, updated_at)
+                        VALUES (
+                            :name,
+                            :strategy_name,
+                            :status,
+                            CAST(:config_json AS jsonb),
+                            now()
+                        )
+                        ON CONFLICT (name)
+                        DO UPDATE SET
+                            strategy_name = EXCLUDED.strategy_name,
+                            status = EXCLUDED.status,
+                            config_json = EXCLUDED.config_json,
+                            updated_at = now()
+                        RETURNING id, name, strategy_name, status
+                        """
+                    ),
+                    {
+                        "name": experiment["name"],
+                        "strategy_name": experiment["strategy_name"],
+                        "status": experiment["status"],
+                        "config_json": json.dumps(experiment["config_json"], default=str),
+                    },
+                ).mappings().one()
+                rows.append(dict(row))
+        return rows
+
+    def open_trade(self, symbol: str, experiment_id: int) -> dict | None:
         with self.engine.begin() as conn:
             row = conn.execute(
                 text(
                     """
                     SELECT *
                     FROM paper_trades
-                    WHERE symbol = :symbol AND status = 'OPEN'
+                    WHERE symbol = :symbol
+                      AND experiment_id = :experiment_id
+                      AND status = 'OPEN'
                     ORDER BY entry_time DESC
                     LIMIT 1
                     """
                 ),
-                {"symbol": symbol},
+                {"symbol": symbol, "experiment_id": experiment_id},
             ).mappings().first()
         return dict(row) if row else None
 
@@ -67,6 +117,8 @@ class PaperTradingRepository:
         *,
         timestamp: datetime,
         symbol: str,
+        experiment_id: int,
+        experiment_name: str,
         strategy_name: str,
         side: str | None,
         confidence: Decimal,
@@ -80,18 +132,21 @@ class PaperTradingRepository:
                 text(
                     """
                     INSERT INTO paper_signals (
-                        timestamp, symbol, strategy_name, side, confidence, reason,
-                        features_json, decision, skip_reason
+                        timestamp, symbol, experiment_id, experiment_name, strategy_name,
+                        side, confidence, reason, features_json, decision, skip_reason
                     )
                     VALUES (
-                        :timestamp, :symbol, :strategy_name, :side, :confidence, :reason,
-                        CAST(:features_json AS jsonb), :decision, :skip_reason
+                        :timestamp, :symbol, :experiment_id, :experiment_name, :strategy_name,
+                        :side, :confidence, :reason, CAST(:features_json AS jsonb),
+                        :decision, :skip_reason
                     )
                     """
                 ),
                 {
                     "timestamp": timestamp,
                     "symbol": symbol,
+                    "experiment_id": experiment_id,
+                    "experiment_name": experiment_name,
                     "strategy_name": strategy_name,
                     "side": side,
                     "confidence": confidence,
@@ -105,6 +160,9 @@ class PaperTradingRepository:
     def insert_trade(
         self,
         *,
+        experiment_id: int,
+        experiment_name: str,
+        strategy_name: str,
         symbol: str,
         side: str,
         entry_time: datetime,
@@ -121,18 +179,21 @@ class PaperTradingRepository:
                 text(
                     """
                     INSERT INTO paper_trades (
-                        symbol, side, status, entry_time, entry_price, quantity,
-                        notional_idr, take_profit_price, stop_loss_price,
-                        fee_estimate_idr, slippage_estimate_idr
+                        experiment_id, experiment_name, strategy_name, symbol, side, status,
+                        entry_time, entry_price, quantity, notional_idr, take_profit_price,
+                        stop_loss_price, fee_estimate_idr, slippage_estimate_idr
                     )
                     VALUES (
-                        :symbol, :side, 'OPEN', :entry_time, :entry_price, :quantity,
-                        :notional_idr, :take_profit_price, :stop_loss_price,
+                        :experiment_id, :experiment_name, :strategy_name, :symbol, :side, 'OPEN',
+                        :entry_time, :entry_price, :quantity, :notional_idr, :take_profit_price, :stop_loss_price,
                         :fee_estimate_idr, :slippage_estimate_idr
                     )
                     """
                 ),
                 {
+                    "experiment_id": experiment_id,
+                    "experiment_name": experiment_name,
+                    "strategy_name": strategy_name,
                     "symbol": symbol,
                     "side": side,
                     "entry_time": entry_time,
@@ -187,7 +248,7 @@ class PaperTradingRepository:
                 },
             )
 
-    def daily_stats(self, timezone: str) -> dict:
+    def daily_stats(self, timezone: str, experiment_id: int) -> dict:
         trading_date = datetime.now(ZoneInfo(timezone)).date()
         with self.engine.begin() as conn:
             row = conn.execute(
@@ -198,13 +259,14 @@ class PaperTradingRepository:
                         count(*) FILTER (WHERE entry_time IS NOT NULL) AS trade_count
                     FROM paper_trades
                     WHERE (entry_time AT TIME ZONE :timezone)::date = :trading_date
+                      AND experiment_id = :experiment_id
                     """
                 ),
-                {"timezone": timezone, "trading_date": trading_date},
+                {"timezone": timezone, "trading_date": trading_date, "experiment_id": experiment_id},
             ).mappings().one()
         return {"realized_pnl_idr": row["realized_pnl_idr"], "trade_count": row["trade_count"]}
 
-    def consecutive_losses(self, timezone: str) -> int:
+    def consecutive_losses(self, timezone: str, experiment_id: int) -> int:
         trading_date = datetime.now(ZoneInfo(timezone)).date()
         with self.engine.begin() as conn:
             rows = conn.execute(
@@ -214,11 +276,12 @@ class PaperTradingRepository:
                     FROM paper_trades
                     WHERE status = 'CLOSED'
                       AND (entry_time AT TIME ZONE :timezone)::date = :trading_date
+                      AND experiment_id = :experiment_id
                     ORDER BY exit_time DESC
                     LIMIT 20
                     """
                 ),
-                {"timezone": timezone, "trading_date": trading_date},
+                {"timezone": timezone, "trading_date": trading_date, "experiment_id": experiment_id},
             ).all()
         losses = 0
         for row in rows:

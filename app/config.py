@@ -63,6 +63,43 @@ class PaperTradingConfig(BaseModel):
     min_trade_flow_imbalance: float = 0.35
     min_orderbook_imbalance: float = 0.15
     min_volatility_bps: float = 2.0
+    dynamic_exit_on_trade_flow_negative: bool = True
+    dynamic_exit_on_orderbook_negative: bool = True
+    experiments: list["PaperTradingExperimentConfig"] = Field(default_factory=list)
+
+
+class ExperimentRiskOverrides(BaseModel):
+    daily_profit_target_percent: float | None = None
+    daily_max_loss_percent: float | None = None
+    risk_per_trade_percent: float | None = None
+    max_position_size_percent: float | None = None
+    max_trades_per_day: int | None = None
+    max_consecutive_losses: int | None = None
+    pause_after_consecutive_losses_minutes: int | None = None
+    max_spread_bps: float | None = None
+
+
+class PaperTradingExperimentConfig(BaseModel):
+    name: str
+    enabled: bool = True
+    strategy_name: str | None = None
+    fee_rate_bps: float | None = None
+    slippage_bps: float | None = None
+    take_profit_bps: float | None = None
+    stop_loss_bps: float | None = None
+    max_holding_minutes: int | None = None
+    cooldown_after_trade_seconds: int | None = None
+    cooldown_after_loss_seconds: int | None = None
+    max_feature_age_seconds: int | None = None
+    min_quote_count: int | None = None
+    min_trade_count: int | None = None
+    min_order_book_count: int | None = None
+    min_trade_flow_imbalance: float | None = None
+    min_orderbook_imbalance: float | None = None
+    min_volatility_bps: float | None = None
+    dynamic_exit_on_trade_flow_negative: bool | None = None
+    dynamic_exit_on_orderbook_negative: bool | None = None
+    risk: ExperimentRiskOverrides = Field(default_factory=ExperimentRiskOverrides)
 
 
 class ReportingConfig(BaseModel):
@@ -119,3 +156,6 @@ def load_config() -> AppConfig:
 
 def exchange_symbol(symbol: str) -> str:
     return symbol.replace("/", "").upper()
+
+
+PaperTradingConfig.model_rebuild()

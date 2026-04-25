@@ -98,12 +98,18 @@ elif page == "Market":
 elif page == "Paper Trading":
     st.subheader("Paper Trading")
     st.caption("Paper-only simulation. No live orders, no exchange private key.")
-    performance = queries.paper_performance(engine)
-    open_positions = queries.open_positions(engine)
-    trades = queries.recent_trades(engine)
-    signal_summary = queries.signal_summary(engine)
-    recent_signals = queries.recent_signals(engine)
-    equity_curve = queries.equity_curve(engine)
+    experiments = queries.list_experiments(engine)
+    experiment_options = ["All"] + experiments["experiment_name"].tolist() if not experiments.empty else ["All"]
+    selected_experiment = st.selectbox("Experiment view", experiment_options)
+    experiment_filter = None if selected_experiment == "All" else selected_experiment
+
+    performance = queries.paper_performance(engine, experiment_filter)
+    comparison = queries.experiment_summary(engine)
+    open_positions = queries.open_positions(engine, experiment_filter)
+    trades = queries.recent_trades(engine, experiment_name=experiment_filter)
+    signal_summary = queries.signal_summary(engine, experiment_name=experiment_filter)
+    recent_signals = queries.recent_signals(engine, experiment_name=experiment_filter)
+    equity_curve = queries.equity_curve(engine, experiment_filter)
 
     if not performance.empty:
         row = performance.iloc[0]
@@ -140,6 +146,9 @@ elif page == "Paper Trading":
         )
         fig.update_layout(height=360)
         st.plotly_chart(fig, use_container_width=True)
+
+    st.write("Experiment comparison")
+    st.dataframe(comparison, use_container_width=True, hide_index=True)
 
     st.write("Open positions")
     st.dataframe(open_positions, use_container_width=True, hide_index=True)

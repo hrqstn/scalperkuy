@@ -68,6 +68,13 @@ class JournalReporter:
                     {"timezone": self.config.timezone, "entry_date": entry_date},
                 ).mappings().all()
             ]
+            experiment_summary = [
+                dict(row)
+                for row in conn.execute(
+                    text(self._experiment_summary_sql()),
+                    {"timezone": self.config.timezone, "entry_date": entry_date},
+                ).mappings().all()
+            ]
             performance = dict(
                 conn.execute(
                     text(self._performance_sql()),
@@ -80,6 +87,7 @@ class JournalReporter:
             "freshness": freshness,
             "signal_summary": signal_summary,
             "exit_summary": exit_summary,
+            "experiment_summary": experiment_summary,
             "performance": performance,
         }
 
@@ -103,6 +111,7 @@ class JournalReporter:
 
         signal_lines = self._rows_to_lines(metrics["signal_summary"], "decision", "reason")
         exit_lines = self._rows_to_lines(metrics["exit_summary"], "exit_reason", None)
+        experiment_lines = self._experiment_lines(metrics["experiment_summary"])
 
         return "\n".join(
             [
@@ -122,6 +131,9 @@ class JournalReporter:
                 "Exit reasons:",
                 exit_lines,
                 "",
+                "Experiment breakdown:",
+                experiment_lines,
+                "",
                 f"Observation: {sample_note}",
                 "Reminder: journal is deterministic; Gemini is not used for this summary.",
             ]
@@ -140,9 +152,28 @@ class JournalReporter:
         return "\n".join(lines)
 
     @staticmethod
+    def _experiment_lines(rows: list[dict]) -> str:
+        if not rows:
+            return "- No experiment rows yet"
+        lines = []
+        for row in rows[:6]:
+            lines.append(
+                "- {experiment_name} / {strategy_name}: trades={closed_trades}, pnl=Rp{realized_pnl_idr}, takes={take_signals}, skips={skip_signals}".format(
+                    experiment_name=row["experiment_name"],
+                    strategy_name=row["strategy_name"],
+                    closed_trades=row["closed_trades"],
+                    realized_pnl_idr=f"{Decimal(str(row['realized_pnl_idr'] or 0)):,.0f}",
+                    take_signals=row["take_signals"],
+                    skip_signals=row["skip_signals"],
+                )
+            )
+        return "\n".join(lines)
+
+    @staticmethod
     def _row_counts_sql() -> str:
         return """
-        SELECT 'market_candles' AS table_name, count(*) AS rows FROM market_candles
+        SELECT 'experiments' AS table_name, count(*) AS rows FROM experiments
+        UNION ALL SELECT 'market_candles', count(*) FROM market_candles
         UNION ALL SELECT 'market_quotes', count(*) FROM market_quotes
         UNION ALL SELECT 'market_trades', count(*) FROM market_trades
         UNION ALL SELECT 'order_book_snapshots', count(*) FROM order_book_snapshots
@@ -207,6 +238,41 @@ class JournalReporter:
         WHERE (entry_time AT TIME ZONE :timezone)::date = :entry_date
         GROUP BY coalesce(exit_reason, 'OPEN')
         ORDER BY rows DESC
+        """
+
+    @staticmethod
+    def _experiment_summary_sql() -> str:
+        return """
+        WITH signal_stats AS (
+            SELECT
+                experiment_name,
+                max(strategy_name) AS strategy_name,
+                count(*) FILTER (WHERE decision = 'TAKE') AS take_signals,
+                count(*) FILTER (WHERE decision = 'SKIP') AS skip_signals
+            FROM paper_signals
+            WHERE (timestamp AT TIME ZONE :timezone)::date = :entry_date
+            GROUP BY experiment_name
+        ),
+        trade_stats AS (
+            SELECT
+                experiment_name,
+                max(strategy_name) AS strategy_name,
+                count(*) FILTER (WHERE status = 'CLOSED') AS closed_trades,
+                coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED'), 0) AS realized_pnl_idr
+            FROM paper_trades
+            WHERE (entry_time AT TIME ZONE :timezone)::date = :entry_date
+            GROUP BY experiment_name
+        )
+        SELECT
+            coalesce(signal_stats.experiment_name, trade_stats.experiment_name) AS experiment_name,
+            coalesce(signal_stats.strategy_name, trade_stats.strategy_name, 'unknown') AS strategy_name,
+            coalesce(trade_stats.closed_trades, 0) AS closed_trades,
+            coalesce(trade_stats.realized_pnl_idr, 0) AS realized_pnl_idr,
+            coalesce(signal_stats.take_signals, 0) AS take_signals,
+            coalesce(signal_stats.skip_signals, 0) AS skip_signals
+        FROM signal_stats
+        FULL OUTER JOIN trade_stats ON trade_stats.experiment_name = signal_stats.experiment_name
+        ORDER BY realized_pnl_idr DESC, experiment_name
         """
 
     @staticmethod

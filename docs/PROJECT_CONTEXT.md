@@ -32,6 +32,7 @@ Services:
 - `aggregator`: active 1m market feature aggregator
 - `dashboard`: active Streamlit dashboard
 - `paper_trader`: active conservative paper trader when `paper_trading.enabled: true`
+- `paper_trader`: also acts as the experiment runner for parallel paper strategies on the same market data
 - `reporter`: active deterministic journal reporter; Gemini summaries are still disabled
 
 ## Hard Rules
@@ -74,6 +75,7 @@ Current intervals:
 - Aggregator materializing 1m market features into `market_features_1m`.
 - Data quality scoring for 1m features via `quality_score`, `is_tradeable_minute`, and `quality_flags`.
 - Conservative paper trader baseline using `micro_momentum_burst_v0`.
+- Experiment framework backed by the `experiments` table for multi-strategy paper simulation.
 - Deterministic journal entries in `journal_entries`.
 - Service health writes with throttled `ok` heartbeat.
 - Discord alerts:
@@ -310,6 +312,23 @@ Current paper trader v0 baseline:
 - Signals are written to `paper_signals`.
 - Trades are written to `paper_trades`.
 
+Current experiment framework:
+
+- `experiments` stores named experiment metadata plus the resolved paper/risk config snapshot.
+- `paper_signals` records `experiment_id` and `experiment_name`.
+- `paper_trades` records `experiment_id`, `experiment_name`, and `strategy_name`.
+- Cooldowns, daily stats, and consecutive-loss checks are isolated per experiment.
+- Multiple experiments can read the same market data while keeping separate paper histories.
+- Dashboard `Paper Trading` supports experiment filtering and experiment comparison.
+- Journal summaries now include experiment breakdown lines.
+
+Current default experiment set:
+
+- `micro_burst_strict_v0`: current conservative micro-burst baseline.
+- `micro_burst_loose_v0`: lower flow/imbalance thresholds with slightly larger TP.
+- `micro_burst_no_dynamic_exit_v0`: disables momentum/orderbook dynamic exits and lets TP/SL plus max holding do more work.
+- `ema_baseline_v0`: simple EMA comparison benchmark with a lighter daily trade budget.
+
 Current journal v0:
 
 - Reporter writes deterministic daily research summaries to `journal_entries`.
@@ -518,6 +537,11 @@ Focus:
 - dashboard comparison
 
 Milestone review: 2026-05-29.
+
+Status update:
+
+- The first experiment framework is already implemented ahead of the review date.
+- Remaining work in this phase is to evaluate results, add or remove variants based on evidence, and improve honest-fill behavior for the experiments worth keeping.
 
 ### 2026-05-30 to 2026-06-12: Phase 4, Aggregation v2 And Retention
 
