@@ -105,6 +105,8 @@ elif page == "Paper Trading":
 
     performance = queries.paper_performance(engine, experiment_filter)
     comparison = queries.experiment_summary(engine)
+    exit_breakdown = queries.experiment_exit_breakdown(engine, experiment_filter)
+    horizon_summary = queries.experiment_horizon_summary(engine, experiment_filter)
     open_positions = queries.open_positions(engine, experiment_filter)
     trades = queries.recent_trades(engine, experiment_name=experiment_filter)
     signal_summary = queries.signal_summary(engine, experiment_name=experiment_filter)
@@ -133,6 +135,10 @@ elif page == "Paper Trading":
         col7.metric("Fees", f"Rp{float(row['fees_idr']):,.0f}")
         col8.metric("Slippage", f"Rp{float(row['slippage_idr']):,.0f}")
 
+        col9, col10 = st.columns(2)
+        col9.metric("Avg gross move", f"{float(row['avg_gross_pnl_percent']):.3f}%")
+        col10.metric("Avg hold", f"{float(row['avg_hold_seconds'] or 0) / 60:.1f} min")
+
     if not equity_curve.empty:
         fig = go.Figure(
             data=[
@@ -149,6 +155,12 @@ elif page == "Paper Trading":
 
     st.write("Experiment comparison")
     st.dataframe(comparison, use_container_width=True, hide_index=True)
+
+    st.write("Experiment exit breakdown")
+    st.dataframe(exit_breakdown, use_container_width=True, hide_index=True)
+
+    st.write("Experiment 5m horizon labels")
+    st.dataframe(horizon_summary, use_container_width=True, hide_index=True)
 
     st.write("Open positions")
     st.dataframe(open_positions, use_container_width=True, hide_index=True)

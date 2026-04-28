@@ -10,6 +10,7 @@ from app.collector.repository import MarketDataRepository
 from app.config import load_config
 from app.db.models import init_db
 from app.db.session import get_engine
+from app.paper.analysis import analyze_long_trade
 from app.paper.experiments import ExperimentRuntime, resolve_experiments
 from app.paper.repository import PaperTradingRepository
 from app.paper.risk import RiskManager
@@ -62,6 +63,7 @@ class PaperTraderService:
                     self._record_skip(experiment, symbol, quote, feature, "missing quote or feature")
                     continue
                 self._maybe_open_trade(experiment, symbol, quote, feature, candles_cache)
+        self._backfill_trade_analysis()
 
     def _manage_open_trade(
         self,
@@ -117,6 +119,7 @@ class PaperTraderService:
             slippage_estimate_idr=slippage_idr,
             exit_reason=exit_reason,
         )
+        self._finalize_trade_analysis({**trade, "exit_time": now, "exit_price": exit_price})
         cooldown_seconds = (
             experiment.paper.cooldown_after_loss_seconds if pnl_idr < 0 else experiment.paper.cooldown_after_trade_seconds
         )
@@ -287,6 +290,32 @@ class PaperTraderService:
 
     def _experiment_id(self, experiment: ExperimentRuntime) -> int:
         return self.experiment_id_by_name[experiment.name]
+
+    def _backfill_trade_analysis(self) -> None:
+        for trade in self.repo.trades_missing_analysis(limit=100):
+            self._finalize_trade_analysis(trade)
+
+    def _finalize_trade_analysis(self, trade: dict) -> None:
+        if not trade.get("entry_time") or not trade.get("exit_time"):
+            return
+        horizon_end = max(
+            trade["exit_time"],
+            trade["entry_time"] + timedelta(minutes=10),
+        )
+        quotes = self.repo.quote_path(trade["symbol"], trade["entry_time"], horizon_end)
+        analysis = analyze_long_trade(trade, quotes)
+        self.repo.update_trade_analysis(
+            trade_id=int(trade["id"]),
+            gross_pnl_idr=analysis.gross_pnl_idr,
+            gross_pnl_percent=analysis.gross_pnl_percent,
+            hold_seconds=analysis.hold_seconds,
+            max_favorable_excursion_bps=analysis.max_favorable_excursion_bps,
+            max_adverse_excursion_bps=analysis.max_adverse_excursion_bps,
+            horizon_3m_label=analysis.horizon_3m_label,
+            horizon_5m_label=analysis.horizon_5m_label,
+            horizon_10m_label=analysis.horizon_10m_label,
+            label_source=analysis.label_source,
+        )
 
     def _write_health(self, status: str, message: str) -> None:
         self.health_repo.write_health(

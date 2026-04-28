@@ -76,6 +76,7 @@ Current intervals:
 - Data quality scoring for 1m features via `quality_score`, `is_tradeable_minute`, and `quality_flags`.
 - Conservative paper trader baseline using `micro_momentum_burst_v0`.
 - Experiment framework backed by the `experiments` table for multi-strategy paper simulation.
+- Trade excursion analysis for closed paper trades using quote-path labels and excursion metrics.
 - Deterministic journal entries in `journal_entries`.
 - Service health writes with throttled `ok` heartbeat.
 - Discord alerts:
@@ -321,6 +322,17 @@ Current experiment framework:
 - Multiple experiments can read the same market data while keeping separate paper histories.
 - Dashboard `Paper Trading` supports experiment filtering and experiment comparison.
 - Journal summaries now include experiment breakdown lines.
+- Closed paper trades are now labeled with:
+  - `gross_pnl_idr`
+  - `gross_pnl_percent`
+  - `hold_seconds`
+  - `max_favorable_excursion_bps`
+  - `max_adverse_excursion_bps`
+  - `horizon_3m_label`
+  - `horizon_5m_label`
+  - `horizon_10m_label`
+  - `label_source`
+- Label source is currently quote-based best-bid path analysis. This is more honest than candle-only approximation for long exits, but still approximate because it depends on polling cadence.
 
 Current default experiment set:
 
@@ -418,6 +430,37 @@ Interpretation:
 - `not enough quote/order book/trade samples` was too frequent. This is likely because paper trader read the currently forming 1m feature bucket. Code was changed so paper trader reads only the latest completed 1m feature.
 - `max consecutive losses reached` was later identified as too sticky because consecutive loss counting was global. It should reset by trading date in `Asia/Jakarta`. Code was changed so consecutive losses only count closed trades from the current trading day.
 - Do not tune strategy edge yet; first reduce timing/noise skips and collect more closed trades.
+
+### 2026-04-28 Experiment Review
+
+Observed from dashboard after several days of experiment runs:
+
+- `experiments`: `4`
+- `paper_signals`: around `74,719`
+- `paper_trades`: around `66`
+- `market_features_1m`: around `20,785`
+- `market_trades`: around `2,022,915`
+
+Experiment comparison snapshot:
+
+- `ema_baseline_v0`: `12` closed trades, realized PnL around `-Rp8,163.86`
+- `micro_burst_strict_v0`: `12` closed trades, realized PnL around `-Rp8,382.80`
+- `micro_burst_no_dynamic_exit_v0`: `13` closed trades, realized PnL around `-Rp8,613.57`
+- `micro_burst_loose_v0`: `13` closed trades, realized PnL around `-Rp8,911.32`
+- historical `legacy_single_strategy`: `16` closed trades, realized PnL around `-Rp11,638.76`
+
+Interpretation:
+
+- Pipeline stability is good enough.
+- Experiment framework is working.
+- Current strategy set still shows no edge.
+- Dynamic exit is not the only issue because the no-dynamic-exit variant also loses.
+- Entry quality is likely the main problem, not just exit timing.
+- This review triggered the next implementation step:
+  - excursion labeling
+  - gross-vs-net move analysis
+  - per-experiment hold/exit breakdown
+  - retiring `legacy_single_strategy` from main comparison views
 
 Bot evolution loop:
 

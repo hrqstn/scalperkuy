@@ -75,6 +75,13 @@ class JournalReporter:
                     {"timezone": self.config.timezone, "entry_date": entry_date},
                 ).mappings().all()
             ]
+            experiment_exit_summary = [
+                dict(row)
+                for row in conn.execute(
+                    text(self._experiment_exit_summary_sql()),
+                    {"timezone": self.config.timezone, "entry_date": entry_date},
+                ).mappings().all()
+            ]
             performance = dict(
                 conn.execute(
                     text(self._performance_sql()),
@@ -88,6 +95,7 @@ class JournalReporter:
             "signal_summary": signal_summary,
             "exit_summary": exit_summary,
             "experiment_summary": experiment_summary,
+            "experiment_exit_summary": experiment_exit_summary,
             "performance": performance,
         }
 
@@ -112,6 +120,7 @@ class JournalReporter:
         signal_lines = self._rows_to_lines(metrics["signal_summary"], "decision", "reason")
         exit_lines = self._rows_to_lines(metrics["exit_summary"], "exit_reason", None)
         experiment_lines = self._experiment_lines(metrics["experiment_summary"])
+        experiment_exit_lines = self._rows_to_lines(metrics["experiment_exit_summary"], "experiment_name", "exit_reason")
 
         return "\n".join(
             [
@@ -133,6 +142,9 @@ class JournalReporter:
                 "",
                 "Experiment breakdown:",
                 experiment_lines,
+                "",
+                "Experiment exit reasons:",
+                experiment_exit_lines,
                 "",
                 f"Observation: {sample_note}",
                 "Reminder: journal is deterministic; Gemini is not used for this summary.",
@@ -158,13 +170,15 @@ class JournalReporter:
         lines = []
         for row in rows[:6]:
             lines.append(
-                "- {experiment_name} / {strategy_name}: trades={closed_trades}, pnl=Rp{realized_pnl_idr}, takes={take_signals}, skips={skip_signals}".format(
+                "- {experiment_name} / {strategy_name}: trades={closed_trades}, pnl=Rp{realized_pnl_idr}, gross={avg_gross:.3f}%, net={avg_net:.3f}%, hold={avg_hold_minutes:.1f}m, top_exit={top_exit_reason}".format(
                     experiment_name=row["experiment_name"],
                     strategy_name=row["strategy_name"],
                     closed_trades=row["closed_trades"],
                     realized_pnl_idr=f"{Decimal(str(row['realized_pnl_idr'] or 0)):,.0f}",
-                    take_signals=row["take_signals"],
-                    skip_signals=row["skip_signals"],
+                    avg_gross=float(row["avg_gross_pnl_percent"] or 0),
+                    avg_net=float(row["avg_net_pnl_percent"] or 0),
+                    avg_hold_minutes=float(row["avg_hold_seconds"] or 0) / 60,
+                    top_exit_reason=row["top_exit_reason"],
                 )
             )
         return "\n".join(lines)
@@ -258,21 +272,59 @@ class JournalReporter:
                 experiment_name,
                 max(strategy_name) AS strategy_name,
                 count(*) FILTER (WHERE status = 'CLOSED') AS closed_trades,
-                coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED'), 0) AS realized_pnl_idr
+                coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED'), 0) AS realized_pnl_idr,
+                coalesce(avg(gross_pnl_percent) FILTER (WHERE status = 'CLOSED'), 0) AS avg_gross_pnl_percent,
+                coalesce(avg(pnl_percent) FILTER (WHERE status = 'CLOSED'), 0) AS avg_net_pnl_percent,
+                coalesce(avg(hold_seconds) FILTER (WHERE status = 'CLOSED'), 0) AS avg_hold_seconds
             FROM paper_trades
             WHERE (entry_time AT TIME ZONE :timezone)::date = :entry_date
             GROUP BY experiment_name
+        ),
+        exit_ranked AS (
+            SELECT
+                experiment_name,
+                exit_reason,
+                count(*) AS rows,
+                row_number() OVER (PARTITION BY experiment_name ORDER BY count(*) DESC, exit_reason) AS rank_order
+            FROM paper_trades
+            WHERE (entry_time AT TIME ZONE :timezone)::date = :entry_date
+              AND status = 'CLOSED'
+              AND exit_reason IS NOT NULL
+              AND experiment_name IN (SELECT name FROM experiments)
+            GROUP BY experiment_name, exit_reason
         )
         SELECT
-            coalesce(signal_stats.experiment_name, trade_stats.experiment_name) AS experiment_name,
-            coalesce(signal_stats.strategy_name, trade_stats.strategy_name, 'unknown') AS strategy_name,
+            experiments.name AS experiment_name,
+            coalesce(signal_stats.strategy_name, trade_stats.strategy_name, experiments.strategy_name, 'unknown') AS strategy_name,
             coalesce(trade_stats.closed_trades, 0) AS closed_trades,
             coalesce(trade_stats.realized_pnl_idr, 0) AS realized_pnl_idr,
+            coalesce(trade_stats.avg_gross_pnl_percent, 0) AS avg_gross_pnl_percent,
+            coalesce(trade_stats.avg_net_pnl_percent, 0) AS avg_net_pnl_percent,
+            coalesce(trade_stats.avg_hold_seconds, 0) AS avg_hold_seconds,
             coalesce(signal_stats.take_signals, 0) AS take_signals,
-            coalesce(signal_stats.skip_signals, 0) AS skip_signals
-        FROM signal_stats
-        FULL OUTER JOIN trade_stats ON trade_stats.experiment_name = signal_stats.experiment_name
+            coalesce(signal_stats.skip_signals, 0) AS skip_signals,
+            coalesce(exit_ranked.exit_reason, 'no_closed_trades') AS top_exit_reason
+        FROM experiments
+        LEFT JOIN signal_stats ON signal_stats.experiment_name = experiments.name
+        LEFT JOIN trade_stats ON trade_stats.experiment_name = experiments.name
+        LEFT JOIN exit_ranked ON exit_ranked.experiment_name = experiments.name AND exit_ranked.rank_order = 1
         ORDER BY realized_pnl_idr DESC, experiment_name
+        """
+
+    @staticmethod
+    def _experiment_exit_summary_sql() -> str:
+        return """
+        SELECT
+            experiment_name,
+            exit_reason,
+            count(*) AS rows
+        FROM paper_trades
+        WHERE (entry_time AT TIME ZONE :timezone)::date = :entry_date
+          AND status = 'CLOSED'
+          AND exit_reason IS NOT NULL
+          AND experiment_name IN (SELECT name FROM experiments)
+        GROUP BY experiment_name, exit_reason
+        ORDER BY experiment_name, rows DESC, exit_reason
         """
 
     @staticmethod
@@ -282,6 +334,9 @@ class JournalReporter:
             count(*) FILTER (WHERE status = 'CLOSED') AS closed_trades,
             count(*) FILTER (WHERE status = 'OPEN') AS open_trades,
             coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED'), 0) AS realized_pnl_idr,
+            coalesce(avg(gross_pnl_percent) FILTER (WHERE status = 'CLOSED'), 0) AS avg_gross_pnl_percent,
+            coalesce(avg(pnl_percent) FILTER (WHERE status = 'CLOSED'), 0) AS avg_net_pnl_percent,
+            coalesce(avg(hold_seconds) FILTER (WHERE status = 'CLOSED'), 0) AS avg_hold_seconds,
             count(*) FILTER (WHERE status = 'CLOSED' AND pnl_idr > 0) AS wins,
             count(*) FILTER (WHERE status = 'CLOSED' AND pnl_idr < 0) AS losses,
             coalesce(sum(pnl_idr) FILTER (WHERE status = 'CLOSED' AND pnl_idr > 0), 0) AS gross_profit_idr,

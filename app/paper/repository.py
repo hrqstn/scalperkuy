@@ -60,6 +60,23 @@ class PaperTradingRepository:
         frame = pd.read_sql_query(query, self.engine, params={"symbol": symbol, "limit": limit})
         return frame.sort_values("open_time")
 
+    def quote_path(self, symbol: str, start_time: datetime, end_time: datetime) -> pd.DataFrame:
+        query = text(
+            """
+            SELECT timestamp, bid, ask, spread_bps
+            FROM market_quotes
+            WHERE symbol = :symbol
+              AND timestamp >= :start_time
+              AND timestamp <= :end_time
+            ORDER BY timestamp
+            """
+        )
+        return pd.read_sql_query(
+            query,
+            self.engine,
+            params={"symbol": symbol, "start_time": start_time, "end_time": end_time},
+        )
+
     def sync_experiments(self, experiments: list[dict]) -> list[dict]:
         rows: list[dict] = []
         with self.engine.begin() as conn:
@@ -111,6 +128,31 @@ class PaperTradingRepository:
                 {"symbol": symbol, "experiment_id": experiment_id},
             ).mappings().first()
         return dict(row) if row else None
+
+    def trades_missing_analysis(self, limit: int = 100) -> list[dict]:
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM paper_trades
+                    WHERE status = 'CLOSED'
+                      AND exit_time IS NOT NULL
+                      AND (
+                        gross_pnl_idr IS NULL
+                        OR gross_pnl_percent IS NULL
+                        OR hold_seconds IS NULL
+                        OR max_favorable_excursion_bps IS NULL
+                        OR max_adverse_excursion_bps IS NULL
+                        OR horizon_10m_label IS NULL
+                      )
+                    ORDER BY exit_time DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            ).mappings().all()
+        return [dict(row) for row in rows]
 
     def insert_signal(
         self,
@@ -245,6 +287,52 @@ class PaperTradingRepository:
                     "fee_estimate_idr": fee_estimate_idr,
                     "slippage_estimate_idr": slippage_estimate_idr,
                     "exit_reason": exit_reason,
+                },
+            )
+
+    def update_trade_analysis(
+        self,
+        *,
+        trade_id: int,
+        gross_pnl_idr: Decimal,
+        gross_pnl_percent: Decimal,
+        hold_seconds: int,
+        max_favorable_excursion_bps: Decimal | None,
+        max_adverse_excursion_bps: Decimal | None,
+        horizon_3m_label: str | None,
+        horizon_5m_label: str | None,
+        horizon_10m_label: str | None,
+        label_source: str,
+    ) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE paper_trades
+                    SET
+                        gross_pnl_idr = :gross_pnl_idr,
+                        gross_pnl_percent = :gross_pnl_percent,
+                        hold_seconds = :hold_seconds,
+                        max_favorable_excursion_bps = :max_favorable_excursion_bps,
+                        max_adverse_excursion_bps = :max_adverse_excursion_bps,
+                        horizon_3m_label = :horizon_3m_label,
+                        horizon_5m_label = :horizon_5m_label,
+                        horizon_10m_label = :horizon_10m_label,
+                        label_source = :label_source
+                    WHERE id = :trade_id
+                    """
+                ),
+                {
+                    "trade_id": trade_id,
+                    "gross_pnl_idr": gross_pnl_idr,
+                    "gross_pnl_percent": gross_pnl_percent,
+                    "hold_seconds": hold_seconds,
+                    "max_favorable_excursion_bps": max_favorable_excursion_bps,
+                    "max_adverse_excursion_bps": max_adverse_excursion_bps,
+                    "horizon_3m_label": horizon_3m_label,
+                    "horizon_5m_label": horizon_5m_label,
+                    "horizon_10m_label": horizon_10m_label,
+                    "label_source": label_source,
                 },
             )
 

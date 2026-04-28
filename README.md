@@ -38,6 +38,7 @@ Yang sudah disiapkan:
 - Paper-trading risk/strategy skeleton tanpa live execution.
 - `paper_trader` menjalankan simulasi konservatif jika `paper_trading.enabled: true`.
 - Experiment framework untuk menjalankan beberapa strategy/risk variant di data yang sama.
+- Trade excursion analysis dan horizon labels (`3m`, `5m`, `10m`) untuk closed paper trades.
 - `reporter` membuat deterministic research journal tanpa Gemini.
 
 ## Quick start
