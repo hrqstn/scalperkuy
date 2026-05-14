@@ -92,8 +92,14 @@ paper_trading:
   strategy_name: micro_momentum_burst_v0
   fee_rate_bps: 10
   slippage_bps: 2
-  take_profit_bps: 40
-  stop_loss_bps: 20
+  take_profit_bps: 60
+  stop_loss_bps: 18
+  warmup_minutes: 30
+  min_expected_move_bps: 36
+  cost_buffer_bps: 12
+  min_volatility_bps: 36
+  min_trade_flow_imbalance: 0.45
+  min_orderbook_imbalance: 0.18
   experiments:
     - name: micro_burst_strict_v0
       strategy_name: micro_momentum_burst_v0
@@ -116,6 +122,8 @@ Paper trader bersifat paper-only:
 - exit long memakai bid - slippage
 - PnL net memotong fee dan slippage
 - jika data stale atau sinyal kurang kuat, entry di-skip
+- entry micro-burst wajib melewati biaya round-trip + buffer sebelum dianggap layak
+- setelah restart/gap data, entry di-skip sampai feature 1m cukup hangat lagi
 - hasil dipisah per `experiment_name`, jadi beberapa strategi bisa dibandingkan di dashboard
 
 Context handoff untuk chat/session berikutnya ada di `docs/PROJECT_CONTEXT.md`.

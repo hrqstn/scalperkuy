@@ -77,6 +77,31 @@ class PaperTradingRepository:
             params={"symbol": symbol, "start_time": start_time, "end_time": end_time},
         )
 
+    def feature_window_health(self, symbol: str, lookback_minutes: int) -> dict:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    WITH feature_window AS (
+                        SELECT
+                            open_time,
+                            lag(open_time) OVER (ORDER BY open_time) AS previous_open_time
+                        FROM market_features_1m
+                        WHERE symbol = :symbol
+                          AND open_time >= date_trunc('minute', now() - (:lookback_minutes * interval '1 minute'))
+                    )
+                    SELECT
+                        count(*)::integer AS feature_count,
+                        min(open_time) AS first_open_time,
+                        max(open_time) AS last_open_time,
+                        max(extract(epoch FROM open_time - previous_open_time)) AS max_gap_seconds
+                    FROM feature_window
+                    """
+                ),
+                {"symbol": symbol, "lookback_minutes": lookback_minutes},
+            ).mappings().one()
+        return dict(row)
+
     def sync_experiments(self, experiments: list[dict]) -> list[dict]:
         rows: list[dict] = []
         with self.engine.begin() as conn:

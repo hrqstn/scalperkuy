@@ -14,7 +14,7 @@ from app.paper.analysis import analyze_long_trade
 from app.paper.experiments import ExperimentRuntime, resolve_experiments
 from app.paper.repository import PaperTradingRepository
 from app.paper.risk import RiskManager
-from app.paper.strategy import baseline_long_signal, micro_momentum_burst_signal
+from app.paper.strategy import baseline_long_signal, micro_momentum_burst_signal, round_trip_cost_bps
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -52,6 +52,7 @@ class PaperTraderService:
 
     def tick(self) -> None:
         candles_cache: dict[str, object] = {}
+        feature_window_cache: dict[tuple[str, int], dict] = {}
         for symbol in self.config.symbols:
             quote = self.repo.latest_quote(symbol)
             feature = self.repo.latest_feature(symbol)
@@ -62,7 +63,7 @@ class PaperTraderService:
                 if not quote or not feature:
                     self._record_skip(experiment, symbol, quote, feature, "missing quote or feature")
                     continue
-                self._maybe_open_trade(experiment, symbol, quote, feature, candles_cache)
+                self._maybe_open_trade(experiment, symbol, quote, feature, candles_cache, feature_window_cache)
         self._backfill_trade_analysis()
 
     def _manage_open_trade(
@@ -78,6 +79,8 @@ class PaperTraderService:
         now = datetime.now(UTC)
         bid = Decimal(str(quote["bid"]))
         exit_price = self._apply_slippage(bid, "sell", experiment)
+        entry_price = Decimal(str(trade["entry_price"]))
+        gross_move_bps = (exit_price - entry_price) / entry_price * Decimal("10000") if entry_price > 0 else Decimal("0")
         exit_reason = None
         if exit_price <= Decimal(str(trade["stop_loss_price"])):
             exit_reason = "stop_loss"
@@ -90,17 +93,16 @@ class PaperTraderService:
             and experiment.paper.dynamic_exit_on_trade_flow_negative
             and Decimal(str(feature.get("trade_flow_imbalance") or 0)) < 0
         ):
-            exit_reason = "momentum_faded"
+            exit_reason = self._cost_aware_dynamic_exit_reason("momentum_faded", gross_move_bps, experiment)
         elif (
             feature
             and experiment.paper.dynamic_exit_on_orderbook_negative
             and Decimal(str(feature.get("orderbook_imbalance_avg") or 0)) < 0
         ):
-            exit_reason = "orderbook_flipped"
+            exit_reason = self._cost_aware_dynamic_exit_reason("orderbook_flipped", gross_move_bps, experiment)
         if not exit_reason:
             return
 
-        entry_price = Decimal(str(trade["entry_price"]))
         quantity = Decimal(str(trade["quantity"]))
         notional_idr = Decimal(str(trade["notional_idr"]))
         gross_pnl_usdt = (exit_price - entry_price) * quantity
@@ -139,6 +141,7 @@ class PaperTraderService:
         quote: dict,
         feature: dict,
         candles_cache: dict[str, object],
+        feature_window_cache: dict[tuple[str, int], dict],
     ) -> None:
         now = datetime.now(UTC)
         cooldown_until = self.cooldown_until_by_key.get((experiment.name, symbol))
@@ -149,6 +152,10 @@ class PaperTraderService:
         quote_age = (now - quote["timestamp"]).total_seconds()
         if feature_age > experiment.paper.max_feature_age_seconds or quote_age > self.config.data.stale_data_seconds:
             self._record_skip(experiment, symbol, quote, feature, "stale market data")
+            return
+        warmup_reason = self._warmup_skip_reason(experiment, symbol, feature_window_cache)
+        if warmup_reason:
+            self._record_skip(experiment, symbol, quote, feature, warmup_reason)
             return
 
         signal = self._generate_signal(experiment, symbol, feature, quote, candles_cache)
@@ -225,6 +232,7 @@ class PaperTraderService:
                 candles,
                 Decimal(str(quote["spread_bps"])),
                 Decimal(str(experiment.risk.max_spread_bps)),
+                experiment.paper,
             )
         return micro_momentum_burst_signal(feature, quote, experiment.paper, experiment.risk)
 
@@ -287,6 +295,43 @@ class PaperTraderService:
             / Decimal("10000")
             * Decimal(str(round_trips * 2))
         )
+
+    def _cost_aware_dynamic_exit_reason(
+        self,
+        reason: str,
+        gross_move_bps: Decimal,
+        experiment: ExperimentRuntime,
+    ) -> str | None:
+        cost_covered_bps = round_trip_cost_bps(experiment.paper) + Decimal(str(experiment.paper.dynamic_exit_min_net_bps))
+        adverse_cut_bps = -Decimal(str(experiment.paper.dynamic_exit_min_adverse_bps))
+        if gross_move_bps >= cost_covered_bps:
+            return f"{reason}_net_protected"
+        if gross_move_bps <= adverse_cut_bps:
+            return reason
+        return None
+
+    def _warmup_skip_reason(
+        self,
+        experiment: ExperimentRuntime,
+        symbol: str,
+        feature_window_cache: dict[tuple[str, int], dict],
+    ) -> str | None:
+        warmup_minutes = max(0, int(experiment.paper.warmup_minutes))
+        if warmup_minutes <= 0:
+            return None
+        cache_key = (symbol, warmup_minutes)
+        stats = feature_window_cache.get(cache_key)
+        if stats is None:
+            stats = self.repo.feature_window_health(symbol, warmup_minutes)
+            feature_window_cache[cache_key] = stats
+        required_rows = max(1, warmup_minutes - 1)
+        feature_count = int(stats.get("feature_count") or 0)
+        if feature_count < required_rows:
+            return f"warming up market features ({feature_count}/{required_rows})"
+        max_gap_seconds = stats.get("max_gap_seconds")
+        if max_gap_seconds is not None and Decimal(str(max_gap_seconds)) > Decimal(str(experiment.paper.max_feature_gap_seconds)):
+            return "market feature gap warming up"
+        return None
 
     def _experiment_id(self, experiment: ExperimentRuntime) -> int:
         return self.experiment_id_by_name[experiment.name]
